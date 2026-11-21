@@ -1,5 +1,5 @@
 // App shell cache only. User data lives in IndexedDB and is never touched here.
-const CACHE='tyredesk-pwa-web-v1.0.1';
+const CACHE='tyredesk-pwa-web-v1.0.2-reminders';
 const APP=['./','./index.html','./styles.css','./manifest.webmanifest','./src/main.mjs','./src/pwa-backup.mjs','./src/db.mjs','./src/logic.mjs','./src/i18n.mjs','./src/invoice.mjs','./src/whatsapp.mjs','./assets/icon-192.png','./assets/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP)).then(() => self.skipWaiting()));
