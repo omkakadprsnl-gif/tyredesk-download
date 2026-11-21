@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../docs/',import.meta.url));
 const server=http.createServer(async(req,res)=>{try{let p=path.join(root,decodeURIComponent(new URL(req.url,'http://local').pathname));if((await fs.stat(p)).isDirectory())p=path.join(p,'index.html');const body=await fs.readFile(p);res.setHeader('Content-Type',({'.mjs':'application/javascript','.js':'application/javascript','.html':'text/html','.css':'text/css','.png':'image/png','.webmanifest':'application/manifest+json'})[path.extname(p)]||'application/octet-stream');res.end(body);}catch{res.statusCode=404;res.end('Not found');}});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
-const base=`http://127.0.0.1:${server.address().port}/app/`;
+const base=process.env.TYREDESK_TEST_URL||`http://127.0.0.1:${server.address().port}/app/`;
 const browser=await chromium.launch({headless:true});
 const context=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:1});
 const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
