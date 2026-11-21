@@ -1,0 +1,30 @@
+name: Verify TyreDesk reminders
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/app/**'
+      - 'tests/reminders.test.mjs'
+      - '.github/workflows/verify-reminders.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install IndexedDB test shim
+        run: npm install --no-save --ignore-scripts fake-indexeddb@6
+      - name: Check JavaScript module syntax
+        run: |
+          node --check docs/app/src/db.mjs
+          node --check docs/app/src/main.mjs
+          node --check docs/app/src/i18n.mjs
+          node --check docs/app/src/pwa-backup.mjs
+          node --check docs/app/sw.js
+      - name: Check reminders, retention and backups
+        run: node tests/reminders.test.mjs
