@@ -1,8 +1,8 @@
 import {uid, normalizePhone, normalizeVehicle, safeText, calculateBill, calculateDue, todayISO} from './logic.mjs';
 
 const DB_NAME='tyreflow-offline-v1';
-const DB_VERSION=5;
-export const STORES = ['settings','customers','vehicles','catalog','orders','payments','expenses','audit','meta','inventoryMovements','purchases'];
+const DB_VERSION=6;
+export const STORES = ['settings','customers','vehicles','catalog','orders','payments','expenses','audit','meta','inventoryMovements','purchases','reminders'];
 let dbPromise;
 const request = req => new Promise((resolve,reject) => { req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); });
 export function getDatabase(){
@@ -22,6 +22,7 @@ export function getDatabase(){
       add('meta');
       add('inventoryMovements',[['productId','productId'],['createdAt','createdAt']]);
       add('purchases',[['productId','productId'],['createdAt','createdAt']]);
+      add('reminders',[['dueAt','dueAt']]);
       // Older versions had an optional stock checkbox. All tyre products now track stock.
       // Keep recorded quantities unchanged; missing quantities become zero until counted.
       if(event.oldVersion<5){
@@ -244,11 +245,30 @@ export async function addExpense(input){
   if(!Number.isSafeInteger(value.amountPaise)||value.amountPaise<=0)throw Error('Expense must be greater than zero');
   await put('expenses',value);return value;
 }
+// Only pending reminders are retained. Completion deletes the record permanently.
+export async function saveReminder(input){
+  const title=String(input.title||'').trim();
+  const notes=String(input.notes||'').trim();
+  const dueAt=String(input.dueAt||'');
+  if(!title||title.length>160)throw Error('Enter a reminder title (maximum 160 characters).');
+  if(notes.length>1000)throw Error('Reminder notes must be under 1,000 characters.');
+  if(!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(dueAt)||!Number.isFinite(Date.parse(dueAt)))throw Error('Choose a valid reminder date and time.');
+  const existing=input.id?await get('reminders',input.id):null;
+  const reminder={id:existing?.id||uid(),title,notes,dueAt,createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+  await put('reminders',reminder);
+  return reminder;
+}
+export async function completeReminder(id){
+  const item=await get('reminders',id);
+  if(!item)throw Error('This reminder is no longer available.');
+  await remove('reminders',id);
+  return item;
+}
 export async function summaryData(){
-  const [settings,customers,vehicles,catalog,orders,payments,expenses,audit,inventoryMovements,purchases]=await Promise.all([getSetting(),all('customers'),all('vehicles'),all('catalog'),all('orders'),all('payments'),all('expenses'),all('audit'),all('inventoryMovements'),all('purchases')]);
+  const [settings,customers,vehicles,catalog,orders,payments,expenses,audit,inventoryMovements,purchases,reminders]=await Promise.all([getSetting(),all('customers'),all('vehicles'),all('catalog'),all('orders'),all('payments'),all('expenses'),all('audit'),all('inventoryMovements'),all('purchases'),all('reminders')]);
   const paymentsByOrder=new Map();for(const p of payments){if(!paymentsByOrder.has(p.orderId))paymentsByOrder.set(p.orderId,[]);paymentsByOrder.get(p.orderId).push(p);}
   const enriched=orders.map(o=>({...o,...calculateDue(o,paymentsByOrder.get(o.id)||[])}));
-  return {settings,customers,vehicles,catalog,orders:enriched,payments,expenses,audit,inventoryMovements,purchases};
+  return {settings,customers,vehicles,catalog,orders:enriched,payments,expenses,audit,inventoryMovements,purchases,reminders};
 }
 const canonical = v => JSON.stringify(v);
 const digest = async text => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))).map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -263,10 +283,11 @@ export async function restoreBackup(json){
   let wrapper;try{wrapper=JSON.parse(json);}catch{throw Error('Invalid JSON backup');}
   if(!wrapper||!wrapper.payload||typeof wrapper.checksum!=='string')throw Error('Invalid backup structure');
   if(await digest(canonical(wrapper.payload))!==wrapper.checksum)throw Error('Backup checksum failed. The file is damaged or modified.');
-  if(wrapper.payload.app!=='TyreDesk'||![3,4,5].includes(wrapper.payload.schemaVersion))throw Error('Incompatible backup version');
+  if(wrapper.payload.app!=='TyreDesk'||![3,4,5,6].includes(wrapper.payload.schemaVersion))throw Error('Incompatible backup version');
   const data={...wrapper.payload.data};
   // Legacy v3 backups predate inventory. Restoring them preserves their original records.
   if(wrapper.payload.schemaVersion===3){data.inventoryMovements=[];data.purchases=[];}
+  if(wrapper.payload.schemaVersion<6)data.reminders=[];
   // Treat restored tyre records like current records even when the backup is old.
   if(Array.isArray(data.catalog))data.catalog=data.catalog.map(item=>item.type==='tyre'
     ? {...item,trackStock:true,stockQty:Number.isSafeInteger(item.stockQty)&&item.stockQty>=0?item.stockQty:0}
