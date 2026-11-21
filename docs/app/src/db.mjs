@@ -252,7 +252,7 @@ export async function saveReminder(input){
   const dueAt=String(input.dueAt||'');
   if(!title||title.length>160)throw Error('Enter a reminder title (maximum 160 characters).');
   if(notes.length>1000)throw Error('Reminder notes must be under 1,000 characters.');
-  if(!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(dueAt)||!Number.isFinite(Date.parse(dueAt)))throw Error('Choose a valid reminder date and time.');
+  if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(dueAt)||!Number.isFinite(Date.parse(dueAt)))throw Error('Choose a valid reminder date and time.');
   const existing=input.id?await get('reminders',input.id):null;
   const reminder={id:existing?.id||uid(),title,notes,dueAt,createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
   await put('reminders',reminder);
