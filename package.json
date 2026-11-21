@@ -12,7 +12,6 @@
     "@supabase/auth-js": "2.119.2",
     "esbuild": "0.28.2",
     "fake-indexeddb": "6.2.8",
-    "pdfjs-dist": "4.10.38",
     "playwright": "1.65.1"
   }
 }

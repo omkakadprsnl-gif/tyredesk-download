@@ -4,6 +4,8 @@ Shop owners can enable private cloud sync in Settings. A fresh device can recove
 
 The release was checked with two independent browser installations, offline billing, concurrent stock changes, duplicate confirmations, an interrupted server reply, reminder deletion and recovery on a third installation. The live shop account passed sign-in, token renewal and database access checks.
 
+Inventory entry in 1.2.0 is manual. Earlier purchase records remain available.
+
 ## Earlier releases
 
 # TyreDesk 1.1.0 — 21 November 2026

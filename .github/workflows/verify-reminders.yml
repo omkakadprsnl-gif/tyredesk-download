@@ -27,11 +27,11 @@ jobs:
           node --check docs/app/src/i18n.mjs
           node --check docs/app/src/pwa-backup.mjs
           node --check docs/app/sw.js
-      - name: Check reminders, ledger, imports and backups
+      - name: Check reminders, ledger, stock and backups
         run: npm test
       - name: Install browser
         run: npx playwright install --with-deps chromium
-      - name: Check mobile flows and offline PDF reader
+      - name: Check mobile billing and offline inventory
         run: npm run test:browser
       - name: Check desktop invoice actions and offline flows
         run: npm run test:desktop
