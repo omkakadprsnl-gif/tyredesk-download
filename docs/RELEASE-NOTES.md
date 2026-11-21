@@ -2,7 +2,7 @@
 
 Fresh installations open at shop sign-in. Returning owners recover their saved business, and an empty account completes business setup once. Business details remain editable in Settings. The shop connection is preconfigured.
 
-Billing has a Show payment QR button at the top and a QR in Payments before Save. A new service typed on a saved invoice becomes a reusable price-list entry. The original invoice retains its agreed rate.
+Billing has a Show payment QR button at the top and shows the QR image above customer and item fields before Save. A new service typed on a saved invoice becomes a reusable price-list entry. The original invoice retains its agreed rate.
 
 # TyreDesk 1.2.0
 
