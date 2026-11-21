@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#171d1b" />
+  <meta name="description" content="TyreDesk — privately managed, beautifully designed, fully offline billing software for tyre shops and alignment centres." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png" />
+  <link rel="apple-touch-icon" href="./assets/icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
+  <title>TyreDesk — The workshop, in order.</title>
+</head>
+<body>
+  <div id="app"><div class="boot"><div class="boot-wheel"></div><span>TYREDESK</span><p>Starting your offline workspace…</p></div></div>
+  <noscript>This application needs JavaScript to run. No internet is required after installation.</noscript>
+  <script type="module" src="./src/main.mjs"></script>
+<style>
+#install-prompt-strip{box-sizing:border-box;display:none;position:fixed;z-index:9999;left:50%;transform:translateX(-50%);bottom:20px;width:calc(100% - 36px);max-width:660px;padding:12px 14px;align-items:center;justify-content:space-between;gap:14px;border-radius:15px;background:#172521;color:white;box-shadow:0 14px 44px rgba(0,0,0,.24);font:500 14px/1.3 system-ui,sans-serif}
+#install-prompt-strip strong{font-weight:700;display:block;margin-bottom:3px}
+#install-prompt-strip p{margin:0;color:#cbd7d1;font-size:12px}
+#install-prompt-strip button{cursor:pointer;border:0;border-radius:9px;background:#eaffb8;color:#1b291d;padding:11px 14px;white-space:nowrap;font:700 13px system-ui}
+@media(max-width:500px){#install-prompt-strip{bottom:75px;padding:10px;gap:8px}#install-prompt-strip p{display:none}#install-prompt-strip button{padding:10px}}
+@media(display-mode:standalone){#install-prompt-strip{display:none!important}}
+</style>
+<div id="install-prompt-strip" role="status"><div><strong>Install TyreDesk on this PC</strong><p>Open it from your desktop and use it offline.</p></div><button type="button" id="install-pwa-now">Install app</button></div>
+<script>
+(function(){
+ const bar=document.getElementById('install-prompt-strip');const button=document.getElementById('install-pwa-now');
+ let pending=null;
+ window.addEventListener('beforeinstallprompt',function(event){event.preventDefault();pending=event;if(!window.matchMedia('(display-mode: standalone)').matches)bar.style.display='flex';});
+ button.addEventListener('click',async function(){if(!pending)return;const p=pending;pending=null;bar.style.display='none';try{await p.prompt();await p.userChoice;}catch(err){console.warn('Install prompt did not complete:',err);}});
+ window.addEventListener('appinstalled',function(){bar.style.display='none';pending=null;});
+})();
+</script>
+</body>
+</html>
