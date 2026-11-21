@@ -20,7 +20,7 @@ try{
  assert.equal(await page.locator('[name=legalConsent]').isChecked(),false);
  for(const [n,v] of Object.entries({name:'Test Tyres',owner:'Test Owner',phone:'9999999999',pin:'1234',confirmPin:'1234'}))await page.locator(`#setup-form [name=${n}]`).fill(v);
  await page.locator('#setup-form button[type=submit]').click();assert.equal((await read()).settings,undefined);
- await page.locator('[name=legalConsent]').check();await page.locator('#setup-form button[type=submit]').click();await page.waitForSelector('.shell');assert.equal((await read()).settings.legalConsent.termsVersion,'2026-11-21');
+ await page.locator('[name=legalConsent]').check();await page.locator('#setup-form button[type=submit]').click();await page.waitForSelector('.shell');assert.equal((await read()).settings.legalConsent.termsVersion,'2026-11-21.2');
  // Create, edit and complete a reminder through the UI.
  await page.locator('[data-action=add-reminder]').click();await page.locator('#reminder-form [name=title]').fill('Call supplier');await page.locator('#reminder-form [name=notes]').fill('Check delivery');await page.locator('#reminder-form [name=due]').fill('2020-01-01T10:30');await page.locator('[form=reminder-form]').click();await page.waitForSelector('.reminder-bell.is-alert');
  await nav('reminders');await page.locator('[data-action=edit-reminder]').click();await page.locator('#reminder-form [name=title]').fill('Call supplier today');await page.locator('[form=reminder-form]').click();await page.waitForFunction(()=>document.querySelector('.reminder-row-info strong')?.textContent==='Call supplier today');await page.locator('[data-action=complete-reminder]').click();await page.waitForFunction(()=>!document.querySelector('.reminder-row'));assert.equal((await read()).reminders.length,0);
@@ -33,6 +33,16 @@ try{
  await fs.mkdir(new URL('../../screenshots/',import.meta.url),{recursive:true});await page.screenshot({path:fileURLToPath(new URL('../../screenshots/payment-qr.png',import.meta.url)),fullPage:true});
  await page.locator('#qr-payment-form [name=amount]').fill('300');await page.locator('#qr-payment-form [name=verified]').check();await page.locator('[form=qr-payment-form]').click();await page.waitForFunction(async()=>{const d=await import('./src/db.mjs');return (await d.all('payments')).length===1;});assert.equal((await read()).orders[0].duePaise,70000);
  await page.locator('[data-action=show-payment-qr]').click();await page.locator('#qr-payment-form [name=verified]').check();await page.locator('[form=qr-payment-form]').click();await page.waitForFunction(async()=>{const d=await import('./src/db.mjs');return (await d.all('payments')).length===2;});await page.locator('[data-action=show-payment-qr]').click();assert.equal(await page.locator('[form=qr-payment-form]').count(),0);assert.equal((await read()).orders[0].duePaise,0);await page.locator('[data-action=close-modal]').first().click();
+ // A real draft shows the QR immediately and keeps the receipt local until the owner saves.
+ await nav('billing');await page.locator('#bill-customer-name').fill('Draft QR customer');
+ await page.locator('[data-action=add-line]').click();await page.locator('[data-line-field=name]').last().fill('Draft service');await page.locator('[data-line-field=unitPaise]').last().fill('150');
+ await page.waitForSelector('.draft-qr img');assert.equal((await read()).orders.length,1);assert.equal((await read()).payments.length,2);
+ await page.locator('[data-action=draft-payment]').click();await page.locator('#draft-payment-form [name=amount]').fill('100');await page.locator('#draft-payment-form [name=verified]').check();await page.locator('[form=draft-payment-form]').click();
+ await page.waitForFunction(()=>document.querySelector('.draft-qr h3')?.textContent.includes('50'));assert.equal((await read()).payments.length,2);
+ await page.reload();await nav('billing');assert.equal(await page.locator('#bill-customer-name').inputValue(),'Draft QR customer');await page.locator('#save-bill').click();
+ await page.waitForFunction(async()=>((await (await import('./src/db.mjs')).all('orders')).length===2));
+ const draft=(await read()).orders.find(o=>o.customerSnapshot.name==='Draft QR customer');assert.equal(draft.duePaise,5000);assert.equal((await read()).payments.filter(p=>p.orderId===draft.id).length,1);
+ await page.locator('[data-action=close-modal]').first().click();
  // Generate a valid one-page supplier PDF, then import through the file picker.
  const content='BT /F1 12 Tf 50 750 Td (MRF 185/65 R15 4 3000.00 12000.00) Tj ET';
  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',`<< /Length ${content.length} >>\nstream\n${content}\nendstream`];

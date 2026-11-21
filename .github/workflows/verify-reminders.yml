@@ -35,3 +35,5 @@ jobs:
         run: npm run test:browser
       - name: Check desktop invoice actions and offline flows
         run: npm run test:desktop
+      - name: Check two-device shop sync and recovery
+        run: npm run test:cloud

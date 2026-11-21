@@ -5,11 +5,14 @@
   "scripts": {
     "test": "node tests/reminders.test.mjs && node tests/features.test.mjs",
     "test:browser": "node tests/browser.test.mjs",
-    "test:desktop": "node tests/desktop.test.mjs"
+    "test:desktop": "node tests/desktop.test.mjs",
+    "test:cloud": "node tests/cloud.test.mjs"
   },
   "devDependencies": {
+    "@supabase/auth-js": "2.119.2",
+    "esbuild": "0.28.2",
     "fake-indexeddb": "6.2.8",
-    "playwright": "1.65.1",
-    "pdfjs-dist": "4.10.38"
+    "pdfjs-dist": "4.10.38",
+    "playwright": "1.65.1"
   }
 }

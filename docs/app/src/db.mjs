@@ -7,7 +7,7 @@ let dbPromise;
 const request = req => new Promise((resolve,reject) => { req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); });
 export function getDatabase(){
   if(!dbPromise) dbPromise = new Promise((resolve,reject)=>{
-    const open=indexedDB.open(DB_NAME,DB_VERSION);
+    const open=indexedDB.open(DB_NAME,7);
     open.onupgradeneeded=(event)=>{
       const db=open.result;
       const add=(store,defs=[])=>{ if(!db.objectStoreNames.contains(store)){const obj=db.createObjectStore(store,{keyPath:'id'}); defs.forEach(([n,k,u])=>obj.createIndex(n,k,{unique:!!u}));} };
@@ -19,7 +19,7 @@ export function getDatabase(){
       add('payments',[['orderId','orderId'],['createdAt','createdAt']]);
       add('expenses',[['date','date'],['createdAt','createdAt']]);
       add('audit',[['createdAt','createdAt']]);
-      add('meta');
+      add('meta'); add('cloudState'); add('cloudBase');
       add('inventoryMovements',[['productId','productId'],['createdAt','createdAt']]);
       add('purchases',[['productId','productId'],['createdAt','createdAt']]);
       add('reminders',[['dueAt','dueAt']]);
@@ -48,10 +48,12 @@ export function getDatabase(){
 }
 export async function transact(storeNames,mode,fn){
   const db=await getDatabase();
-  const tx=db.transaction(storeNames,mode);
+  const tracked=mode==='readwrite'&&!storeNames.includes('cloudState')&&storeNames.some(s=>s!=='audit');
+  const tx=db.transaction(tracked?[...storeNames,'cloudState']:storeNames,mode);
   let result; let finished=false;
   const complete=new Promise((resolve,reject)=>{ tx.oncomplete=()=>{finished=true;resolve();};tx.onerror=()=>reject(tx.error||new Error('Storage error'));tx.onabort=()=>reject(tx.error||new Error('Transaction cancelled')); });
-  try {result=await fn(tx);} catch(err) {try{if(!finished)tx.abort();}catch{} await complete.catch(()=>{});throw err;}
+  try {result=await fn(tx);
+    if(tracked){const s=tx.objectStore('cloudState'),d=await request(s.get('device'));if(d)await request(s.put({...d,generation:d.generation+1}));}} catch(err) {try{if(!finished)tx.abort();}catch{} await complete.catch(()=>{});throw err;}
   await complete;
   return result;
 }
@@ -180,7 +182,10 @@ export async function completeOrder(input){
   const settings=await getSetting();if(!settings)throw Error('Complete shop setup first');
   const calculated=calculateBill(input.items,input.orderDiscount,{registered:settings.gstRegistered,supplyMode:input.supplyMode||'intra'});
   const paid=Number(input.paidPaise||0);
-  if(!Number.isSafeInteger(paid)||paid<0||paid>calculated.totals.grandPaise)throw Error('Payment cannot exceed the bill total');
+  const receipts=input.draftReceipts||[];
+  if(!Array.isArray(receipts)||receipts.some(p=>typeof p.id!=='string'||!Number.isSafeInteger(p.amountPaise)||p.amountPaise<=0))throw Error('Invalid draft payment.');
+  const received=receipts.reduce((sum,p)=>sum+p.amountPaise,paid);
+  if(!Number.isSafeInteger(paid)||paid<0||received>calculated.totals.grandPaise)throw Error('Payment cannot exceed the bill total');
   const customerId=input.customerId||uid();const vehicleId=uid();const orderId=uid();const paymentId=uid();const now=new Date().toISOString();const requestId=input.requestId||uid();
   const customerName=safeText(input.customerName), customerPhone=safeText(input.customerPhone);const vehicle=safeText(input.vehicle).toUpperCase();
   if(!input.customerId&&!customerName&&!customerPhone)throw Error('Enter a customer name or number');
@@ -219,10 +224,13 @@ export async function completeOrder(input){
     const meta=tx.objectStore('meta');const yy=new Date().getFullYear();const seqId=`invoice-${yy}`;const seq=(await request(meta.get(seqId)))?.value||0;const newSeq=seq+1;
     await request(meta.put({id:seqId,value:newSeq}));
     const invoicePrefix=safeText(settings.invoicePrefix||'INV').replace(/\s/g,'').toUpperCase().slice(0,12)||'INV';
-    const number=`${invoicePrefix}-${yy}-${String(newSeq).padStart(5,'0')}`;
+    const device=await request(tx.objectStore('cloudState').get('device'));
+    const number=device?.series?`${invoicePrefix.slice(0,3)}/${String(yy).slice(-2)}${device.series.toString(36).toUpperCase()}/${String(newSeq).padStart(5,'0')}`:`${invoicePrefix}-${yy}-${String(newSeq).padStart(5,'0')}`;
     const order={id:orderId,requestId,number,createdAt:now,date:todayISO(),customerId:customer.id,customerSnapshot:{name:customer.name,phone:customer.phone},vehicle,items:calculated.lines,totals:calculated.totals,orderDiscount:input.orderDiscount||{type:'fixed',value:0},supplyMode:input.supplyMode||'intra',paymentMethod:input.paymentMethod||'cash',paymentReference:safeText(input.paymentReference),notes:safeText(input.notes),status:'completed',shopSnapshot:{name:settings.name,owner:settings.owner,phone:settings.phone,whatsapp:settings.whatsapp,address:settings.address,city:settings.city,state:settings.state,gstin:settings.gstin,invoicePrefix,logoData:settings.logoData||'',gstRegistered:settings.gstRegistered,terms:settings.terms||'',language:settings.language||'en'}};
     await request(orders.add(order));
     for(const stock of stockLines){await request(tx.objectStore('inventoryMovements').add({id:uid(),productId:stock.productId,productName:stock.productName,delta:-stock.qty,balanceAfter:stock.balanceAfter,type:'sale',reference:orderId,note:number,createdAt:now}));}
+    for(const p of receipts)await request(tx.objectStore('payments').add({id:p.id,orderId,amountPaise:p.amountPaise,method:'upi',reference:safeText(p.reference),createdAt:p.createdAt,type:'received'}));
+    await request(tx.objectStore('cloudState').delete('draft-'+requestId));
     if(paid)await request(tx.objectStore('payments').add({id:paymentId,orderId,amountPaise:paid,method:input.paymentMethod||'cash',reference:safeText(input.paymentReference),createdAt:now,type:'received'}));
     await request(tx.objectStore('audit').put({id:uid(),action:'order-created',detail:number,createdAt:now}));
     return order;
@@ -286,6 +294,7 @@ export async function saveReminder(input){
   if(notes.length>1000)throw Error('Reminder notes must be under 1,000 characters.');
   if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(dueAt)||!Number.isFinite(Date.parse(dueAt)))throw Error('Choose a valid reminder date and time.');
   const existing=input.id?await get('reminders',input.id):null;
+  if(input.id&&!existing)throw Error('This reminder has already been completed.');
   const reminder={id:existing?.id||uid(),title,notes,dueAt,createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
   await put('reminders',reminder);
   return reminder;
@@ -293,7 +302,11 @@ export async function saveReminder(input){
 export async function completeReminder(id){
   const item=await get('reminders',id);
   if(!item)throw Error('This reminder is no longer available.');
-  await remove('reminders',id);
+  await transact(['reminders','cloudBase'],'readwrite',async tx=>{
+    await request(tx.objectStore('reminders').delete(id));
+    const base=tx.objectStore('cloudBase'),key=JSON.stringify(['reminders',id]);
+    if(await request(base.get(key)))await request(base.put({id:key,doc:{id}}));
+  });
   return item;
 }
 export async function summaryData(){
@@ -310,7 +323,7 @@ export async function exportBackup(){
   const checksum=await digest(canonical(payload));
   return JSON.stringify({payload,checksum},null,2);
 }
-export async function restoreBackup(json){
+export async function restoreBackup(json,{disconnectCloud=false}={}){
   if(json.length>100_000_000)throw Error('Backup file too large');
   let wrapper;try{wrapper=JSON.parse(json);}catch{throw Error('Invalid JSON backup');}
   if(!wrapper||!wrapper.payload||typeof wrapper.checksum!=='string')throw Error('Invalid backup structure');
@@ -327,9 +340,25 @@ export async function restoreBackup(json){
   for(const store of STORES){if(!Array.isArray(data?.[store])||data[store].some(record=>!record||typeof record.id!=='string'))throw Error(`Invalid backup table: ${store}`);}
   if(data.settings.length!==1||data.settings[0].id!=='shop')throw Error('Missing shop settings');
   // Single IndexedDB transaction. A failed restore rolls back all table changes.
-  return transact(STORES,'readwrite',async tx=>{
+  return transact([...STORES,'cloudState','cloudBase'],'readwrite',async tx=>{
+    if(await request(tx.objectStore('cloudState').get('device'))&&!disconnectCloud)throw Error('Confirm restoring this device as an offline copy first.');
+    await request(tx.objectStore('cloudState').clear());
+    await request(tx.objectStore('cloudBase').clear());
     for(const store of STORES)await request(tx.objectStore(store).clear());
     for(const store of STORES)for(const value of data[store])await request(tx.objectStore(store).put(value));
     return Object.fromEntries(STORES.map(store=>[store,data[store].length]));
+  });
+}
+
+export async function saveReceivedDraft(bill){
+  return transact(['cloudState','orders'],'readwrite',async tx=>{
+    if(await request(tx.objectStore('orders').index('requestId').get(bill.requestId)))throw Error('This draft already has an invoice.');
+    await request(tx.objectStore('cloudState').put({id:'draft-'+bill.requestId,bill:{...bill,saving:false}}));
+  });
+}
+export async function receivedDraft(){
+  return transact(['cloudState'],'readonly',async tx=>{
+    const rows=await request(tx.objectStore('cloudState').getAll(IDBKeyRange.bound('draft-','draft-\uffff'),1));
+    return rows[0]?.bill;
   });
 }

@@ -1,3 +1,11 @@
+# TyreDesk 1.2.0
+
+Shop owners can enable private cloud sync in Settings. A fresh device can recover the shop at sign-in. Scanning the QR on an unsaved bill leaves the ledger untouched. Confirm money actually received, then save the invoice. Confirmed draft receipts survive an app restart on the same device.
+
+The release was checked with two independent browser installations, offline billing, concurrent stock changes, duplicate confirmations, an interrupted server reply, reminder deletion and recovery on a third installation. The live shop account passed sign-in, token renewal and database access checks.
+
+## Earlier releases
+
 # TyreDesk 1.1.0 — 21 November 2026
 
 This release keeps shop data on the device. Supabase integration is deferred; there is no automatic PC/phone sync.
