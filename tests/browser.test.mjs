@@ -9,7 +9,9 @@ const server=http.createServer(async(req,res)=>{try{let p=path.join(root,decodeU
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const base=process.env.TYREDESK_TEST_URL||`http://127.0.0.1:${server.address().port}/app/`;
 const browser=await chromium.launch({headless:true});
-const context=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:1});
+const desktop=process.env.TYREDESK_DESKTOP==='1';
+const viewport=desktop?{width:1440,height:1000}:{width:390,height:844};
+const context=await browser.newContext({viewport,deviceScaleFactor:1});
 const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
 const read=()=>page.evaluate(async()=>{const db=await import('./src/db.mjs');return db.summaryData();});
 const nav=async name=>{await page.evaluate(n=>document.querySelector(`[data-nav="${n}"]`).click(),name);await page.waitForSelector(`[data-page="${name}"]`);};
@@ -27,7 +29,7 @@ try{
  await page.reload();await page.waitForSelector('.shell');await nav('sales');await page.locator(`[data-invoice="${id}"]`).first().click();await page.locator('[data-action=show-payment-qr]').click();await page.waitForSelector('[data-action=qr-settings]');assert.equal((await read()).payments.length,0);
  await page.locator('[data-action=qr-settings]').click();await page.locator('[name=paymentQr]').setInputFiles(path.join(root,'app/assets/icon-512.png'));await page.locator('#settings-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('.qr-settings-preview')!==null);
  await nav('sales');await page.locator(`[data-invoice="${id}"]`).first().click();await page.locator('[data-action=show-payment-qr]').click();await page.waitForSelector('.payment-qr-display img');assert.equal((await read()).payments.length,0);
- const bounds=await page.locator('.payment-qr-display img').boundingBox();assert.ok(bounds.width>240&&bounds.width<=390,'QR readable on mobile');
+ const bounds=await page.locator('.payment-qr-display img').boundingBox();assert.ok(bounds.width>240&&bounds.width<=Math.min(440,viewport.width),'QR readable on mobile');
  await fs.mkdir(new URL('../../screenshots/',import.meta.url),{recursive:true});await page.screenshot({path:fileURLToPath(new URL('../../screenshots/payment-qr.png',import.meta.url)),fullPage:true});
  await page.locator('#qr-payment-form [name=amount]').fill('300');await page.locator('#qr-payment-form [name=verified]').check();await page.locator('[form=qr-payment-form]').click();await page.waitForFunction(async()=>{const d=await import('./src/db.mjs');return (await d.all('payments')).length===1;});assert.equal((await read()).orders[0].duePaise,70000);
  await page.locator('[data-action=show-payment-qr]').click();await page.locator('#qr-payment-form [name=verified]').check();await page.locator('[form=qr-payment-form]').click();await page.waitForFunction(async()=>{const d=await import('./src/db.mjs');return (await d.all('payments')).length===2;});await page.locator('[data-action=show-payment-qr]').click();assert.equal(await page.locator('[form=qr-payment-form]').count(),0);assert.equal((await read()).orders[0].duePaise,0);await page.locator('[data-action=close-modal]').first().click();
@@ -40,5 +42,5 @@ try{
  await page.evaluate(async()=>{const d=await import('./src/db.mjs');const backup=await d.exportBackup();await d.restoreBackup(backup);});assert.ok((await read()).settings.paymentQrData);assert.equal((await read()).purchases.length,1);
  // Shell, legal pages and supplier PDF reader must work offline after activation.
  await page.evaluate(async()=>{await navigator.serviceWorker.ready;});await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);await context.setOffline(true);await page.reload();await page.waitForSelector('.shell');await nav('inventory');await page.locator('[data-action=import-supplier-pdf]').click();await page.locator('#supplier-pdf-file').setInputFiles({name:'supplier.pdf',mimeType:'application/pdf',buffer:Buffer.from(pdf)});await page.waitForSelector('[data-supplier-row]');await page.locator('[data-action=close-modal]').first().click();await page.goto(base+'terms.html');assert.match(await page.textContent('h1'),/Terms/);await page.goto(base+'privacy.html');assert.match(await page.textContent('h1'),/Privacy/);
- assert.deepEqual(errors,[]);console.log('Mobile setup consent, reminders, QR display/partial/full payment, PDF extraction/import, backup and offline legal/PDF: PASS');
+ assert.deepEqual(errors,[]);console.log((desktop?'Desktop':'Mobile')+' setup consent, reminders, QR display/partial/full payment, PDF extraction/import, backup and offline legal/PDF: PASS');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

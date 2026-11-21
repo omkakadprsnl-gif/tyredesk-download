@@ -1,0 +1,9 @@
+{
+  "version": "1.1.0",
+  "androidVersionCode": 11,
+  "apkSha256": "7c8d83c254e9fbc9a9d318b54e64d868f1153c838b979ea5c2efbb6475709ef8",
+  "appCommit": "db7c4debf1110584560ea75d98eec9c128f48117",
+  "androidBuildCommit": "c065141da6c4e4b654f618d18e2ade432d3f7149",
+  "supabase": false,
+  "releaseDate": "2026-11-21"
+}

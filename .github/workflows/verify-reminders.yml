@@ -33,3 +33,5 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Check mobile flows and offline PDF reader
         run: npm run test:browser
+      - name: Check desktop invoice actions and offline flows
+        run: npm run test:desktop
