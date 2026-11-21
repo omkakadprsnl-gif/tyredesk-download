@@ -1,0 +1,46 @@
+name: Import TyreDesk customer installation site
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/import-site.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified site export
+        env:
+          SITE_URL: 'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-a324-8208-b1ef-f0f1e9ea53d9/raw?se=2026-11-21T00%3A58%3A33Z&sp=r&sv=2026-06-06&sr=b&scid=e8453138-65cc-51bc-8310-f4ad48cc8ea3&skoid=3cb6de21-012a-49c9-9402-a1ebf8d0bd06&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-20T04%3A07%3A29Z&ske=2026-11-21T04%3A07%3A29Z&sks=b&skv=2026-06-06&sig=skaX7omLPDS8Iq%2BfQ7a6CiOJ%2B/QYkTZuzTzZr29piC4%3D'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 180 "$SITE_URL" --output /tmp/tyredesk-outer.zip
+          echo "0b59722c26619dcfe902afca24fb4ca81462aae2e7eda7e6bcd67ad12f139f92  /tmp/tyredesk-outer.zip" | sha256sum --check -
+          unzip -q /tmp/tyredesk-outer.zip -d /tmp/tyredesk-artifact
+          unzip -t /tmp/tyredesk-artifact/TyreDesk-Public-Site.zip | tail -1
+          mkdir -p docs
+          unzip -q /tmp/tyredesk-artifact/TyreDesk-Public-Site.zip -d docs
+          test -s docs/index.html
+          test -s docs/app/index.html
+          test -s docs/app/sw.js
+          test -s docs/app/src/pwa-backup.mjs
+          test -s docs/TyreDesk.apk
+          unzip -t docs/TyreDesk.apk >/dev/null
+          if find docs -type f \( -iname '*keystore*' -o -iname '*password*' -o -iname '*signing-key*' \) | grep .; then exit 1; fi
+          printf 'TyreDesk install site: https://omkakadprsnl-gif.github.io/tyredesk-download/\nTo enable Pages: Settings > Pages > Deploy from a branch > main > /docs > Save.\n' > README.md
+      - name: Commit deployment files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs README.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish TyreDesk PWA and Android customer APK"
+            git push origin HEAD:main
+          fi
