@@ -88,7 +88,7 @@ begin
       from tyredesk.records p where p.kind='payments' and p.doc->>'orderId'=a.id) totals on true
     where o.key is null or paid<0 or paid>(o.doc->'totals'->>'grandPaise')::bigint or (o.doc->>'status'='cancelled' and paid<>0)
   ) then raise exception 'Payment or cancellation conflicts with the shared invoice balance'; end if;
-  update tyredesk.shop set revision=next_rev,last_delete=case when removed then next_rev else last_delete end;
+  update tyredesk.shop set revision=next_rev,last_delete=case when removed then next_rev else last_delete end where singleton;
   return next_rev;
 end $$;
 

@@ -6,6 +6,10 @@ The release was checked with two independent browser installations, offline bill
 
 Inventory entry in 1.2.0 is manual. Earlier purchase records remain available.
 
+The deployed PWA passed the desktop browser check. The two-device recovery and retry tests also passed against isolated records in hosted Supabase. The Android upgrade retains its signing certificate and package identity.
+
+APK SHA-256: `02403c7bbf2fd8aab1d6283d33a6739c0950ace046960cfbd733f0c40ff3d4a8`
+
 ## Earlier releases
 
 # TyreDesk 1.1.0 — 21 November 2026

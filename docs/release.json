@@ -1,9 +1,9 @@
 {
-  "version": "1.1.0",
-  "androidVersionCode": 11,
-  "apkSha256": "7c8d83c254e9fbc9a9d318b54e64d868f1153c838b979ea5c2efbb6475709ef8",
-  "appCommit": "db7c4debf1110584560ea75d98eec9c128f48117",
-  "androidBuildCommit": "c065141da6c4e4b654f618d18e2ade432d3f7149",
-  "supabase": false,
-  "releaseDate": "2026-11-21"
+  "version": "1.2.0",
+  "androidVersionCode": 12,
+  "apkSha256": "02403c7bbf2fd8aab1d6283d33a6739c0950ace046960cfbd733f0c40ff3d4a8",
+  "appCommit": "2b55fa49f7ed8d11062fa3dce6c33e75d568ee4f",
+  "androidBuildCommit": "91c3da908c409cd246b3cf78d6a59b397c248203",
+  "supabase": true,
+  "releaseDate": "2026-11-22"
 }
