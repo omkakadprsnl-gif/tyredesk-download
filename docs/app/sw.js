@@ -1,6 +1,6 @@
 // App shell cache only. User data lives in IndexedDB and is never touched here.
-const CACHE='tyredesk-pwa-web-v1.0.2-reminders';
-const APP=['./','./index.html','./styles.css','./manifest.webmanifest','./src/main.mjs','./src/pwa-backup.mjs','./src/db.mjs','./src/logic.mjs','./src/i18n.mjs','./src/invoice.mjs','./src/whatsapp.mjs','./assets/icon-192.png','./assets/icon-512.png'];
+const CACHE='tyredesk-pwa-web-v1.1.0';
+const APP=['./terms.html','./privacy.html','./src/legal.mjs','./src/supplier-pdf.mjs','./vendor/pdf.mjs','./vendor/pdf.worker.mjs','./','./index.html','./styles.css','./manifest.webmanifest','./src/main.mjs','./src/pwa-backup.mjs','./src/db.mjs','./src/logic.mjs','./src/i18n.mjs','./src/invoice.mjs','./src/whatsapp.mjs','./assets/icon-192.png','./assets/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP)).then(() => self.skipWaiting()));
 });
@@ -12,6 +12,9 @@ self.addEventListener('fetch', event => {
   if(request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
+    // Serve one coherent installed app version; installing a new worker refreshes all shell files.
+    const shell=APP.some(path=>new URL(path,self.registration.scope).href===request.url);
+    if(shell){const cached=await cache.match(request);if(cached)return cached;}
     try {
       const response = await fetch(request);
       if(response.ok) await cache.put(request, response.clone());

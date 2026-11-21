@@ -147,6 +147,35 @@ export async function recordPurchase({productId,qty,costPaise,supplier='',refere
     return purchase;
   });
 }
+/** All reviewed supplier rows commit together, including duplicate protection in backups. */
+export async function importSupplierPurchase({hash,supplier,reference,rows}){
+ if(!/^[a-f0-9]{64}$/.test(hash)||!safeText(supplier)||!safeText(reference))throw Error('Choose a supplier PDF and enter supplier and invoice reference.');
+ if(!Array.isArray(rows)||!rows.length||rows.length>100)throw Error('Review between 1 and 100 stock rows.');
+ const normalized=rows.map(r=>{
+  const qty=stockInt(r.qty,'Quantity');if(!qty)throw Error('Quantity must be greater than zero');
+  const costPaise=Number(r.costPaise),pricePaise=Number(r.pricePaise);
+  if(!Number.isSafeInteger(costPaise)||costPaise<0)throw Error('Enter the purchase unit cost for every row.');
+  if(!r.productId&&(!safeText(r.name)||!Number.isSafeInteger(pricePaise)||pricePaise<0))throw Error('New tyres need a name and selling price.');
+  return {...r,qty,costPaise,pricePaise};
+ });
+ const refKey='supplier-invoice-'+JSON.stringify([safeText(supplier).toLowerCase(),safeText(reference).toLowerCase()]);
+ return transact(['catalog','purchases','inventoryMovements','audit','meta'],'readwrite',async tx=>{
+  const meta=tx.objectStore('meta');if(await request(meta.get('supplier-pdf-'+hash))||await request(meta.get(refKey)))throw Error('This supplier PDF or invoice has already been imported. Check stock history.');
+  const createdAt=new Date().toISOString();const batchId=uid();
+  for(const row of normalized){
+   const catalog=tx.objectStore('catalog');let p=row.productId?await request(catalog.get(row.productId)):null;
+   if(row.productId&&(!p||p.type!=='tyre'||p.isActive===false))throw Error('A selected tyre no longer exists. Review the import.');
+   if(!p)p={id:uid(),name:safeText(row.name),searchName:safeText(row.name).toLowerCase(),type:'tyre',pricePaise:row.pricePaise,taxBps:0,stockQty:0,trackStock:true,lowStockAt:5,isActive:true,createdAt};
+   const next=(p.stockQty||0)+row.qty;if(!Number.isSafeInteger(next))throw Error('Stock exceeds safe quantity');
+   p={...p,stockQty:next,costPaise:row.costPaise,supplier:safeText(supplier),updatedAt:createdAt};await request(catalog.put(p));
+   const id=uid();await request(tx.objectStore('purchases').add({id,productId:p.id,productName:p.name,qty:row.qty,costPaise:row.costPaise,supplier:safeText(supplier),reference:safeText(reference),batchId,createdAt}));
+   await request(tx.objectStore('inventoryMovements').add({id:uid(),productId:p.id,productName:p.name,delta:row.qty,balanceAfter:next,type:'purchase',reference:id,note:`PDF: ${safeText(supplier)} / ${safeText(reference)}`,createdAt}));
+  }
+  await request(meta.put({id:'supplier-pdf-'+hash,batchId,createdAt}));await request(meta.put({id:refKey,batchId,createdAt}));
+  await request(tx.objectStore('audit').add({id:uid(),action:'supplier-pdf-imported',detail:`${safeText(supplier)} / ${safeText(reference)} / ${normalized.length} rows`,createdAt}));
+  return batchId;
+ });
+}
 export async function completeOrder(input){
   const settings=await getSetting();if(!settings)throw Error('Complete shop setup first');
   const calculated=calculateBill(input.items,input.orderDiscount,{registered:settings.gstRegistered,supplyMode:input.supplyMode||'intra'});
@@ -199,13 +228,16 @@ export async function completeOrder(input){
     return order;
   });
 }
-export async function addPayment(orderId,amountPaise,method='cash',reference=''){
+export async function addPayment(orderId,amountPaise,method='cash',reference='',confirmationId=''){
   amountPaise=Number(amountPaise);if(!Number.isSafeInteger(amountPaise)||amountPaise<=0)throw Error('Enter a valid payment');
   return transact(['orders','payments','audit'],'readwrite',async tx=>{
+    if(confirmationId){const existing=await request(tx.objectStore('payments').get('confirmation-'+confirmationId));if(existing){if(existing.orderId!==orderId||existing.amountPaise!==amountPaise)throw Error('Payment confirmation already used.');return existing;}}
     const order=await request(tx.objectStore('orders').get(orderId));if(!order||order.status==='cancelled')throw Error('Invoice not found or cancelled');
     const payments=await request(tx.objectStore('payments').index('orderId').getAll(orderId));const due=calculateDue(order,payments).duePaise;
+    const ref=safeText(reference).toLowerCase();
+    if(ref&&payments.some(p=>p.type==='received'&&p.method===method&&String(p.reference||'').toLowerCase()===ref))throw Error('This transaction reference has already been recorded for this invoice.');
     if(amountPaise>due)throw Error('Payment exceeds remaining balance');
-    const pay={id:uid(),orderId,amountPaise,method,reference:safeText(reference),type:'received',createdAt:new Date().toISOString()};
+    const pay={id:confirmationId?'confirmation-'+confirmationId:uid(),orderId,amountPaise,method,reference:safeText(reference),type:'received',createdAt:new Date().toISOString()};
     await request(tx.objectStore('payments').add(pay));
     await request(tx.objectStore('audit').add({id:uid(),action:'payment-added',detail:`${order.number} / ${amountPaise}`,createdAt:pay.createdAt}));
     return pay;
