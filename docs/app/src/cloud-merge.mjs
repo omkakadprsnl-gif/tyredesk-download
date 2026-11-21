@@ -45,6 +45,9 @@ export function reconcile(base,local,remote){
     if(kind==='reminders'&&b&&(!r||!l)){result.delete(k);continue;}
     if(!l)conflict('A restored backup would remove shared records. Keep a separate local copy for review.');
     if(!b&&r&&kind==='payments'&&l.id.startsWith('confirmation-')&&l.orderId===r.orderId&&l.amountPaise===r.amountPaise&&l.method===r.method&&l.reference===r.reference)continue;
+    // Independent bills can introduce the same service offline. Keep the first
+    // synced catalogue rate. Each invoice already carries its own agreed rate.
+    if(!b&&r&&kind==='catalog'&&id.startsWith('service-')&&l.type==='service'&&r.type==='service')continue;
     if(!b&&r&&!same(l,r))conflict('Two different '+kind+' records have the same identifier. Review both copies.');
     if(!r&&b)conflict('The shared '+kind+' record was removed while this device was offline.');
     if(!b||!r){result.set(k,l);continue;}

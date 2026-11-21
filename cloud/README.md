@@ -9,7 +9,7 @@ insert into tyredesk.shop(owner_id)
 select id from auth.users where id = '<owner UUID>' and email_confirmed_at is not null;
 ```
 
-On the first device, open Shop sign-in from Settings and authorise uploading this shop. A new installation can use Sign in to recover a cloud shop on the setup screen. Aai Alignment is preconfigured. For another shop, open Use a different shop project and enter its project reference and publishable key. Only a publishable key belongs on a device. The device PIN stays local.
+For each new shop, configure its username, project reference and publishable key in the trusted projectsByUsername directory in cloud.mjs before distributing the update. Aai Alignment is preconfigured. A fresh installation opens at TyreDesk sign-in. If a profile exists, the owner chooses a local device PIN and recovers the shop. An empty account sees business setup once. An existing local-only shop can connect from Settings. Keep independent backup copies.
 
 The first signed-in device with shop data seeds an empty cloud database. Devices sharing the login get distinct invoice series. While TyreDesk is open, it checks for changes every 20 seconds and on reconnect. Incompatible concurrent edits stop sync and preserve the local copy. Review both devices before choosing the option to export the local copy and use the cloud records. Manually reconcile any genuine transactions from the export. The owner controls billing decisions when two disconnected devices have sold the last item or taken payments against the same balance.
 

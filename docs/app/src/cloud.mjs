@@ -1,8 +1,11 @@
 import {GoTrueClient} from '../vendor/auth.mjs';
 import {bindCloud,localCloud,snapshot,applyCloud,pendingWrite,stageWrite,clearWrite} from './cloud-store.mjs';
-import {reconcile,changes,rowKey,SyncConflict} from './cloud-merge.mjs';
+import {get,getSetting,put,remove} from './db.mjs';
+import {reconcile,changes,rowKey,cloudRecord,SyncConflict} from './cloud-merge.mjs';
 
+// Set the shop-owned project here when provisioning a distribution.
 const defaultProject={ref:'yaztgggiaraghfkcllzh',key:'sb_publishable_T6oFj9KLmXeejZO0RyTuqw_dPnHEnkD'};
+const projectsByUsername={aai:defaultProject};
 const preference='tyredesk-cloud-project';
 const selected=()=>JSON.parse(localStorage.getItem(preference)||'null')||defaultProject;
 let client=null, running=null, message='Cloud sync is off.', blocked=false, timer;
@@ -31,12 +34,12 @@ async function rpc(action,body={}){
   }
   return res.json();
 }
-export async function loginCloud({username,password,project,key,pin}){
-  const existing=await localCloud(),target=project?{ref:project.trim(),key:key.trim()}:existing?selected():defaultProject;
+export async function loginCloud({username,password,pin,onboarding=false}){
+  const existing=await localCloud();
+  const target=existing?selected():(Object.hasOwn(projectsByUsername,username.toLowerCase())?projectsByUsername[username.toLowerCase()]:defaultProject);
   if(!/^[a-z0-9]{20}$/.test(target.ref)||!/^sb_publishable_[A-Za-z0-9_-]+$/.test(target.key))throw Error('Enter the shop project reference and publishable key.');
-  if(existing&&target.ref!==existing.project)throw Error('This installation already belongs to a different project.');
   if(!/^[a-z0-9._-]{1,60}$/i.test(username))throw Error('Enter your shop username.');
-  if(target.ref!==selected().ref||target.key!==selected().key){client=null;}
+  if(client&&target.ref!==selected().ref){await client.dispose();client=null;}
   localStorage.setItem(preference,JSON.stringify(target));
   const {data,error}=await setupClient().signInWithPassword({email:username.toLowerCase()+'@shop.tyredesk.invalid',password});
   if(error)throw error;
@@ -45,7 +48,52 @@ export async function loginCloud({username,password,project,key,pin}){
   if(!token){token=crypto.randomUUID();localStorage.setItem('tyredesk-device-uuid',token);}
   const series=await rpc('device',{token});
   await bindCloud(target.ref,data.user.id,series,pin);
-  blocked=false;await syncCloud();
+  blocked=false;if(!onboarding)await syncCloud();
+}
+// Read the owner-protected profile before offering setup. A failed read must
+// never be interpreted as an empty shop.
+async function accountProfile(){
+  const head=await rpc('head');
+  const page=await rpc('page',{since_revision:0,after_kind:'settings',after_key:''});
+  return {revision:head.revision,exists:page.some(r=>r.kind==='settings'&&r.key==='shop')};
+}
+export async function firstRunStep(){
+  const device=await localCloud();
+  if(!device)return 'signin';
+  const {data,error}=await setupClient().getSession();
+  if(error)throw error;
+  if(!data.session||data.session.user.id!==device.user)return 'signin';
+  if(!(await accountProfile()).exists){
+    const draft=await get('cloudState','setupDraft');
+    if(!draft||!device.pin)return 'setup';
+    await finishFirstSetup({...draft.doc,...device.pin});
+    return 'ready';
+  }
+  if(!device.pin)return 'pin';
+  await restoreAccount();
+  return 'ready';
+}
+export async function restoreAccount(pin){
+  const device=await localCloud();
+  if(!device)throw Error('Sign in to recover your shop.');
+  if(pin)await bindCloud(device.project,device.user,device.series,pin);
+  await syncCloud();
+  if(!await getSetting())throw Error(cloudStatus().message);
+  await remove('cloudState','setupDraft');
+}
+export async function finishFirstSetup(profile){
+  const device=await localCloud();
+  if(!device)throw Error('Sign in before setting up the shop.');
+  await bindCloud(device.project,device.user,device.series,{pinHash:profile.pinHash,pinSalt:profile.pinSalt});
+  const doc=cloudRecord('settings',{...profile,updatedAt:new Date().toISOString()});
+  await put('cloudState',{id:'setupDraft',doc});
+  const current=await accountProfile();
+  if(!current.exists){
+    const revision=await rpc('commit',{expected_revision:current.revision,
+      changes:[{kind:'settings',key:'shop',doc}],device_token:localStorage.getItem('tyredesk-device-uuid'),write_token:crypto.randomUUID()});
+    if(revision<0&&!(await accountProfile()).exists)throw Error('The account changed during setup. Please try again.');
+  }
+  await restoreAccount();
 }
 export async function logoutCloud(){
   if(running)await running;

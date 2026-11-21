@@ -1,3 +1,9 @@
+# TyreDesk 1.2.1
+
+Fresh installations open at shop sign-in. Returning owners recover their saved business, and an empty account completes business setup once. Business details remain editable in Settings. The shop connection is preconfigured.
+
+Billing has a Show payment QR button at the top and a QR in Payments before Save. A new service typed on a saved invoice becomes a reusable price-list entry. The original invoice retains its agreed rate.
+
 # TyreDesk 1.2.0
 
 Shop owners can enable private cloud sync in Settings. A fresh device can recover the shop at sign-in. Scanning the QR on an unsaved bill leaves the ledger untouched. Confirm money actually received, then save the invoice. Confirmed draft receipts survive an app restart on the same device.

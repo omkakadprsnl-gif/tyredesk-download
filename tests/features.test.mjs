@@ -18,9 +18,15 @@ assert.equal(concurrent.filter(x=>x.status==='fulfilled').length,1,'Concurrent c
 assert.equal((await summaryData()).orders[0].duePaise,0);
 const tyre=await addCatalogItem({name:'MRF 185/65 R15',type:'tyre',pricePaise:500000,openingStockQty:2});
 await recordPurchase({productId:tyre.id,qty:4,costPaise:300000,supplier:'Supplier',reference:'S-1'});
-assert.equal((await all('catalog'))[0].stockQty,6);
+assert.equal((await all('catalog')).find(p=>p.id===tyre.id).stockQty,6);
 const backup=await exportBackup();await restoreBackup(backup);
 assert.deepEqual((await getSetting()).legalConsent,consent);
 assert.equal((await getSetting()).paymentQrData,'data:image/png;base64,test');
 assert.equal((await all('purchases')).length,1);assert.equal((await all('payments')).length,3);
 console.log('PASS: consent, payment confirmations, manual stock purchase and backup restore');
+
+const service=(await all('catalog')).find(p=>p.type==='service');
+assert.equal(service.name,'Alignment');assert.equal(service.pricePaise,100000);
+await completeOrder({customerName:'Another customer',items:[{name:'  ALIGNMENT  ',type:'service',qty:1,unitPaise:80000}]});
+assert.equal((await all('catalog')).filter(p=>p.type==='service').length,1);
+assert.equal((await all('catalog')).find(p=>p.id===service.id).pricePaise,100000);

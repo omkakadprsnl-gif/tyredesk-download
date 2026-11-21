@@ -1,3 +1,4 @@
+import {mockShopAccount,signIn} from './shop-account.mjs';
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -12,11 +13,12 @@ const browser=await chromium.launch({headless:true});
 const desktop=process.env.TYREDESK_DESKTOP==='1';
 const viewport=desktop?{width:1440,height:1000}:{width:390,height:844};
 const context=await browser.newContext({viewport,deviceScaleFactor:1});
+const mockAccount=mockShopAccount();await mockAccount.attach(context);
 const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
 const read=()=>page.evaluate(async()=>{const db=await import('./src/db.mjs');return db.summaryData();});
 const nav=async name=>{await page.evaluate(n=>document.querySelector(`[data-nav="${n}"]`).click(),name);await page.waitForSelector(`[data-page="${name}"]`);};
 try{
- await page.goto(base);await page.waitForSelector('#setup-form');
+ await page.goto(base);await page.waitForSelector('#cloud-form');assert.equal(await page.locator('#setup-form,[name=project],[name=key]').count(),0);await signIn(page);await page.waitForSelector('#setup-form');
  assert.equal(await page.locator('[name=legalConsent]').isChecked(),false);
  for(const [n,v] of Object.entries({name:'Test Tyres',owner:'Test Owner',phone:'9999999999',pin:'1234',confirmPin:'1234'}))await page.locator(`#setup-form [name=${n}]`).fill(v);
  await page.locator('#setup-form button[type=submit]').click();assert.equal((await read()).settings,undefined);
@@ -34,7 +36,7 @@ try{
  await page.locator('#qr-payment-form [name=amount]').fill('300');await page.locator('#qr-payment-form [name=verified]').check();await page.locator('[form=qr-payment-form]').click();await page.waitForFunction(async()=>{const d=await import('./src/db.mjs');return (await d.all('payments')).length===1;});assert.equal((await read()).orders[0].duePaise,70000);
  await page.locator('[data-action=show-payment-qr]').click();await page.locator('#qr-payment-form [name=verified]').check();await page.locator('[form=qr-payment-form]').click();await page.waitForFunction(async()=>{const d=await import('./src/db.mjs');return (await d.all('payments')).length===2;});await page.locator('[data-action=show-payment-qr]').click();assert.equal(await page.locator('[form=qr-payment-form]').count(),0);assert.equal((await read()).orders[0].duePaise,0);await page.locator('[data-action=close-modal]').first().click();
  // A real draft shows the QR immediately and keeps the receipt local until the owner saves.
- await nav('billing');await page.locator('#bill-customer-name').fill('Draft QR customer');
+ await nav('billing');await page.locator('[data-action=draft-show-qr]').click();await page.waitForSelector('.modal .draft-qr img');assert.equal(await page.locator('.modal [data-action=draft-payment]').count(),0);await page.locator('[data-action=close-modal]').first().click();await page.locator('#bill-customer-name').fill('Draft QR customer');
  await page.locator('[data-action=add-line]').click();await page.locator('[data-line-field=name]').last().fill('Draft service');await page.locator('[data-line-field=unitPaise]').last().fill('150');
  await page.waitForSelector('.draft-qr img');assert.equal((await read()).orders.length,1);assert.equal((await read()).payments.length,2);
  await page.locator('[data-action=draft-payment]').click();await page.locator('#draft-payment-form [name=amount]').fill('100');await page.locator('#draft-payment-form [name=verified]').check();await page.locator('[form=draft-payment-form]').click();
@@ -43,10 +45,11 @@ try{
  await page.waitForFunction(async()=>((await (await import('./src/db.mjs')).all('orders')).length===2));
  const draft=(await read()).orders.find(o=>o.customerSnapshot.name==='Draft QR customer');assert.equal(draft.duePaise,5000);assert.equal((await read()).payments.filter(p=>p.orderId===draft.id).length,1);
  await page.locator('[data-action=close-modal]').first().click();
+ await nav('billing');await page.getByRole('button',{name:/Draft service/}).click();assert.equal(await page.locator('[data-line-field=unitPaise]').last().inputValue(),'150.00');
  await nav('inventory');
  assert.equal(await page.getByText('Import supplier PDF',{exact:true}).count(),0);
- await page.evaluate(async()=>{const d=await import('./src/db.mjs');const p=await d.addCatalogItem({name:'Manual tyre',type:'tyre',pricePaise:600000});await d.recordPurchase({productId:p.id,qty:4,costPaise:300000,supplier:'Supplier',reference:'S-1'});const backup=await d.exportBackup();await d.restoreBackup(backup);});assert.ok((await read()).settings.paymentQrData);assert.equal((await read()).purchases.length,1);
- await page.evaluate(async()=>{await navigator.serviceWorker.ready;});await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);await context.setOffline(true);await page.reload();await page.waitForSelector('.shell');await nav('inventory');assert.equal((await read()).catalog[0].stockQty,4);
+ await page.evaluate(async()=>{const d=await import('./src/db.mjs');const p=await d.addCatalogItem({name:'Manual tyre',type:'tyre',pricePaise:600000});await d.recordPurchase({productId:p.id,qty:4,costPaise:300000,supplier:'Supplier',reference:'S-1'});const backup=await d.exportBackup();await (await import('./src/cloud.mjs')).restoreOffline(()=>d.restoreBackup(backup,{disconnectCloud:true}));});assert.ok((await read()).settings.paymentQrData);assert.equal((await read()).purchases.length,1);
+ await page.evaluate(async()=>{await navigator.serviceWorker.ready;});await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);await context.setOffline(true);await page.reload();await page.waitForSelector('.shell');await nav('inventory');assert.equal((await read()).catalog.find(p=>p.name==='Manual tyre').stockQty,4);
  await page.goto(base+'terms.html');assert.match(await page.textContent('h1'),/Terms/);await page.goto(base+'privacy.html');assert.match(await page.textContent('h1'),/Privacy/);
  assert.deepEqual(errors,[]);console.log((desktop?'Desktop':'Mobile')+' consent, reminders, draft QR, payments, manual stock, backups and offline use: PASS');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

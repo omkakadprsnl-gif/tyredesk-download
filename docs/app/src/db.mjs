@@ -161,6 +161,13 @@ export async function completeOrder(input){
   const customerName=safeText(input.customerName), customerPhone=safeText(input.customerPhone);const vehicle=safeText(input.vehicle).toUpperCase();
   if(!input.customerId&&!customerName&&!customerPhone)throw Error('Enter a customer name or number');
   if(!calculated.lines.every(l=>safeText(l.name)))throw Error('Every line needs a description');
+  const serviceKey=name=>safeText(name).normalize('NFKC').toLowerCase().replace(/\s+/g,' ').trim();
+  const customServices=calculated.lines.filter(l=>!l.catalogId&&(!l.type||l.type==='service'));
+  const serviceIds=new Map();
+  for(const line of customServices){
+    const key=serviceKey(line.name);
+    if(!serviceIds.has(key))serviceIds.set(key,'service-'+await digest(key));
+  }
   return transact(['settings','customers','vehicles','orders','payments','meta','audit','catalog','inventoryMovements'],'readwrite',async tx=>{
     const orders=tx.objectStore('orders');
     const existing=await request(orders.index('requestId').get(requestId));if(existing)return existing;
@@ -183,6 +190,21 @@ export async function completeOrder(input){
       const entry=counts.get(line.catalogId)||0;counts.set(line.catalogId,entry+line.qty);
     }
     const stockLines=[];const catalogStore=tx.objectStore('catalog');
+    if(customServices.length){
+      const services=await request(catalogStore.index('type').getAll('service'));
+      const byName=new Map(services.filter(s=>s.isActive!==false).map(s=>[serviceKey(s.name),s]));
+      for(const line of customServices){
+        const key=serviceKey(line.name);
+        let service=byName.get(key);
+        if(!service){
+          service={id:serviceIds.get(key),type:'service',name:safeText(line.name),searchName:safeText(line.name).toLowerCase(),
+            code:safeText(line.code),pricePaise:line.unitPaise,taxBps:line.taxBps,isActive:true,trackStock:false,
+            stockQty:0,costPaise:0,createdAt:now,updatedAt:now};
+          await request(catalogStore.put(service));byName.set(key,service);
+        }
+        line.catalogId=service.id;
+      }
+    }
     for(const [productId,qty] of counts){
       const p=await request(catalogStore.get(productId));
       if(!p)throw Error('A selected price-list item was removed. Reopen the invoice.');
