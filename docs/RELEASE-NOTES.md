@@ -1,3 +1,11 @@
+# TyreDesk 1.3.6
+
+Removed the Android APK self-installer and its REQUEST_INSTALL_PACKAGES permission and FileProvider. TyreDesk still checks for new versions and shows Update Available. The update button now opens the official HTTPS download page in a browser; install the signed APK over the existing app without uninstalling. Daily backups, thermal receipt printing, offline storage, invoices and Supabase synchronization remain. Updated the offline service worker cache and corrected mobile update-button layout.
+
+SHA-256: `b17a2dbc7f295df5b4ac834bac2e185c9569177f270af4b40c570bcf106be1f6`
+
+Google Play Protect may still warn about downloaded APKs. The exact warning must be checked on a real Android phone; do not disable Play Protect or bypass a harmful-app warning.
+
 # TyreDesk 1.3.5
 
 Removed the shop logo upload field. New invoices no longer copy shop logo images. Invoices omit temporary calculation and editor fields while retaining item prices, totals, GST breakdowns and financial history. Previously issued invoices remain readable, and data is preserved when the signed APK is installed over 1.3.4.
