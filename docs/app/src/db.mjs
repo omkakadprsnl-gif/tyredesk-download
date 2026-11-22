@@ -1,3 +1,5 @@
+import {prepareInvoiceEdit,trackedQuantities} from './stock-edit.mjs';
+import { inventoryMode, tyreIdentity, tyreName, tyreText } from './tyres.mjs';
 import {uid, normalizePhone, normalizeVehicle, safeText, calculateBill, calculateDue, todayISO} from './logic.mjs';
 
 const DB_NAME='tyreflow-offline-v1';
@@ -95,6 +97,58 @@ export async function setVehicle(reg,customerId,confirmTransfer=false){
   });
 }
 const stockInt = (value,field) => {const number=Number(value);if(!Number.isSafeInteger(number)||number<0)throw Error(`${field} must be a nonnegative whole number`);return number;};
+export async function setInventoryMode(mode) {
+  if (!['simple','detailed'].includes(mode)) throw Error('Choose an inventory mode.');
+  return transact(['settings','catalog'],'readwrite',async tx=>{
+    const settings=tx.objectStore('settings');
+    const shop=await request(settings.get('shop'));
+    if(!shop)throw Error('Complete shop setup first.');
+    const tyres=await request(tx.objectStore('catalog').index('type').getAll('tyre'));
+    if(tyres.length && inventoryMode(shop,tyres)!==mode)
+      throw Error('Changing mode requires reassigning your existing stock. Your current stock and purchase history are kept.');
+    await request(settings.put({...shop,inventoryMode:mode,updatedAt:new Date().toISOString()}));
+  });
+}
+
+export async function buyTyres({mode,brand,model,size,existingId,qty,costPaise,pricePaise,supplier='',reference='',purchaseId=uid()}) {
+  const identity=tyreIdentity(mode,{brand,model,size});
+  if(!identity&&!existingId)throw Error(mode==='detailed'?'Enter a brand, model and size.':'Enter a brand.');
+  qty=stockInt(qty,'Quantity');
+  if(!qty)throw Error('Enter how many tyres you purchased.');
+  if(!Number.isSafeInteger(costPaise)||costPaise<0||!Number.isSafeInteger(pricePaise)||pricePaise<0)
+    throw Error('Enter valid purchase and selling prices.');
+  const productId=identity?'tyre-'+await digest(mode+':'+identity):null;
+  return transact(['settings','catalog','purchases','inventoryMovements','audit'],'readwrite',async tx=>{
+    const purchases=tx.objectStore('purchases');
+    const saved=await request(purchases.get(purchaseId));
+    if(saved)return saved;
+    const shop=await request(tx.objectStore('settings').get('shop'));
+    const catalog=tx.objectStore('catalog');
+    const tyres=await request(catalog.index('type').getAll('tyre'));
+    if(inventoryMode(shop,tyres)!==mode)throw Error('The inventory mode changed. Reopen this purchase.');
+    if(!shop.inventoryMode)await request(tx.objectStore('settings').put({...shop,inventoryMode:mode,updatedAt:new Date().toISOString()}));
+    const matches=identity?tyres.filter(p=>tyreIdentity(mode,p)===identity):[];
+    if(matches.length>1)throw Error('More than one older stock entry matches. Open the intended entry and choose Restock.');
+    const selected=existingId?tyres.find(p=>p.id===existingId):matches[0];
+    if(existingId&&!selected)throw Error('The existing tyre could not be found.');
+    if(selected&&identity&&tyreIdentity(mode,selected)!==identity)throw Error('The selected tyre no longer matches.');
+    const now=new Date().toISOString();
+    const details={brand:tyreText(brand),model:mode==='detailed'?tyreText(model):'',size:mode==='detailed'?tyreText(size):''};
+    const product=selected||{...details,id:productId,name:tyreName(details,mode),type:'tyre',stockQty:0,
+      taxBps:0,lowStockAt:5,isActive:true,trackStock:true,createdAt:now,tyreIdentity:identity,inventoryMode:mode};
+    const next=stockInt((product.stockQty||0)+qty,'Stock');
+    const name=tyreName(product,mode);
+    await request(catalog.put({...product,stockQty:next,pricePaise,costPaise,updatedAt:now,
+      supplier:safeText(supplier)||product.supplier||''}));
+    const purchase={id:purchaseId,productId:product.id,productName:name,qty,costPaise,pricePaise,
+      supplier:safeText(supplier),reference:safeText(reference),createdAt:now};
+    await request(purchases.add(purchase));
+    await request(tx.objectStore('inventoryMovements').add({id:'purchase-'+purchaseId,productId:product.id,
+      productName:name,delta:qty,balanceAfter:next,type:'purchase',reference:purchaseId,note:purchase.supplier,createdAt:now}));
+    return purchase;
+  });
+}
+
 export async function addCatalogItem(input){
   const price=Number(input.pricePaise||0),rate=Number(input.taxBps||0),cost=Number(input.costPaise||0);
   if(!Number.isSafeInteger(price)||price<0)throw Error('Invalid selling price');
@@ -108,7 +162,10 @@ export async function addCatalogItem(input){
     const type=input.type==='tyre'?'tyre':'service';
     const stockEnabled=type==='tyre';
     const beginning=prev ? stockInt(prev.stockQty||0,'Stock') : stockInt(input.openingStockQty||0,'Opening stock');
-    if(prev && prev.type==='tyre' && type!=='tyre' && beginning>0)throw Error('Adjust stock to zero before changing a tracked tyre into a service');
+    if(prev && prev.type==='tyre' && type!=='tyre')throw Error('Tyre stock entries cannot be changed into services');
+    if(prev?.tyreIdentity && tyreIdentity(prev.inventoryMode,{
+      brand:input.brand??prev.brand,model:input.model??prev.model,size:input.size??prev.size
+    })!==prev.tyreIdentity)throw Error('Stock identity cannot change. Add a separate tyre for a different brand, model or size.');
     const now=new Date().toISOString();
     const value={...(prev||{}),id:input.id||uid(),name,searchName:name.toLowerCase(),type,pricePaise:price,taxBps:rate,code:safeText(input.code??prev?.code),sku:safeText(input.sku??prev?.sku),brand:safeText(input.brand??prev?.brand),model:safeText(input.model??prev?.model),size:safeText(input.size??prev?.size),supplier:safeText(input.supplier??prev?.supplier),costPaise:cost,lowStockAt:stockInt(input.lowStockAt??prev?.lowStockAt??5,'Low-stock threshold'),stockQty:beginning,trackStock:stockEnabled,isActive:input.isActive!==false,updatedAt:now,createdAt:prev?.createdAt||now};
     await request(store.put(value));
@@ -259,13 +316,17 @@ export async function recordRefund(orderId,amountPaise,method='cash',reference='
   return value;
  });
 }
+export async function editOrder(input){
+  return transact(['orders','payments','catalog','inventoryMovements'],'readwrite',
+    tx=>prepareInvoiceEdit({...input,tx,request}));
+}
 export async function cancelOrder(id,reason='') {
   return transact(['orders','payments','audit','catalog','inventoryMovements'],'readwrite',async tx=>{
     const order=await request(tx.objectStore('orders').get(id));if(!order||order.status==='cancelled')throw Error('Invoice not found or already cancelled');
     const payments=await request(tx.objectStore('payments').index('orderId').getAll(id));const balance=calculateDue(order,payments).paidPaise;
     if(balance>0)throw Error('Record a refund before cancelling a paid invoice. Contact support for refund processing.');
     // Restore tracked stock only once, on an actual cancellation.
-    const counts=new Map();for(const line of order.items||[]){if(line.catalogId&&Number.isSafeInteger(line.unitCostPaise))counts.set(line.catalogId,(counts.get(line.catalogId)||0)+line.qty);}
+    const counts=trackedQuantities(order.items||[]);
     for(const [productId,qty] of counts){const store=tx.objectStore('catalog');const product=await request(store.get(productId));if(product?.type!=='tyre')continue;product.stockQty+=qty;product.updatedAt=new Date().toISOString();await request(store.put(product));await request(tx.objectStore('inventoryMovements').add({id:uid(),productId,productName:product.name,delta:qty,balanceAfter:product.stockQty,type:'cancellation',reference:id,note:order.number,createdAt:product.updatedAt}));}
     order.status='cancelled';order.cancelReason=safeText(reason);order.cancelledAt=new Date().toISOString();
     await request(tx.objectStore('orders').put(order));

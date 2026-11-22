@@ -48,13 +48,29 @@ export function reconcile(base,local,remote){
     // Independent bills can introduce the same service offline. Keep the first
     // synced catalogue rate. Each invoice already carries its own agreed rate.
     if(!b&&r&&kind==='catalog'&&id.startsWith('service-')&&l.type==='service'&&r.type==='service')continue;
+    if(!b&&r&&kind==='catalog'&&l.tyreIdentity&&l.tyreIdentity===r.tyreIdentity&&l.inventoryMode===r.inventoryMode){
+      const stockQty=r.stockQty+(localMovements.get(id)||[]).reduce((sum,m)=>sum+m.delta,0);
+      if(stockQty<0)conflict('Both devices sold the remaining stock of '+l.name+'. Review the sales and physical stock.');
+      result.set(k,{...r,stockQty});continue;
+    }
     if(!b&&r&&!same(l,r))conflict('Two different '+kind+' records have the same identifier. Review both copies.');
     if(!r&&b)conflict('The shared '+kind+' record was removed while this device was offline.');
     if(!b||!r){result.set(k,l);continue;}
+    if(kind==='orders'&&l.editToken!==r.editToken&&
+      (l.editToken!==b.editToken||l.status!==b.status)&&(r.editToken!==b.editToken||r.status!==b.status))
+      conflict('Two devices changed the same invoice. Review the local and cloud versions.');
     const merged={...r};
     for(const field of new Set([...Object.keys(b),...Object.keys(l)])){
       if(kind==='catalog'&&field==='stockQty')continue;
       if(same(l[field],b[field]))continue;
+      if(kind==='catalog'&&field==='costPaise'&&localMovements.get(id)?.some(m=>m.type==='purchase')&&remoteProducts.has(id)){
+        if(l.updatedAt>=r.updatedAt)merged[field]=l[field];
+        continue;
+      }
+      if(kind==='catalog'&&['supplier','pricePaise'].includes(field)&&localMovements.get(id)?.some(m=>m.type==='purchase')&&remoteProducts.has(id)){
+        if(l.updatedAt>=r.updatedAt)merged[field]=l[field];
+        continue;
+      }
       if(field==='updatedAt'){merged[field]=[l[field],r[field]].filter(Boolean).sort().at(-1);continue;}
       if(!same(r[field],b[field])&&!same(r[field],l[field]))conflict('Two devices changed '+field+' on the same '+kind+' record. Review the local and cloud copies.');
       if(l[field]===undefined)delete merged[field];else merged[field]=l[field];
@@ -72,6 +88,9 @@ export function reconcile(base,local,remote){
     }
     result.set(k,merged);
   }
+  const mode=result.get(rowKey('settings','shop'))?.inventoryMode;
+  if(mode&&[...result.values()].some(p=>p.type==='tyre'&&p.inventoryMode&&p.inventoryMode!==mode))
+    conflict('Inventory was created while another device changed the inventory mode. Review both devices before continuing.');
   for(const [id,moves] of localMovements){
     if(!remoteProducts.has(id))continue;
     const existing=[...remote.values()].filter(x=>x.productId===id&&x.type==='cancellation');

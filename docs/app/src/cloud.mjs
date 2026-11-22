@@ -8,10 +8,10 @@ const defaultProject={ref:'yaztgggiaraghfkcllzh',key:'sb_publishable_T6oFj9KLmXe
 const projectsByUsername={aai:defaultProject};
 const preference='tyredesk-cloud-project';
 const selected=()=>JSON.parse(localStorage.getItem(preference)||'null')||defaultProject;
-let client=null, running=null, message='Cloud sync is off.', blocked=false, timer;
+let client=null, running=null, message='Sign in to sync this shop across devices.', blocked=false, timer, databaseBytes;
 const notify=()=>window.dispatchEvent(new Event('tyredesk-cloud-status'));
 function status(value){message=value;notify();}
-export const cloudStatus=()=>({message,blocked,dashboard:'https://supabase.com/dashboard/project/'+selected().ref});
+export const cloudStatus=()=>({message,blocked,databaseBytes,dashboard:'https://supabase.com/dashboard/project/'+selected().ref});
 function setupClient(){
   if(client)return client;
   const {ref,key}=selected();
@@ -29,7 +29,7 @@ async function rpc(action,body={}){
     if(/project.{0,30}paused|project_paused/i.test(raw)||res.status===540)throw Error('Your Supabase project is paused. Open the project dashboard and choose Resume Project.');
     if(res.status>=500)throw Error('The cloud service is unavailable. Check the project dashboard. This device will retry.');
     let detail;try{detail=JSON.parse(raw).message;}catch{}
-    if(/duplicate key|shared stock|invoice balance/i.test(detail||''))throw new SyncConflict('A shared invoice, payment or stock record conflicts with this device. Review both copies.');
+    if(/duplicate key|shared stock|inventory mode|invoice balance/i.test(detail||''))throw new SyncConflict('A shared invoice, payment or stock record conflicts with this device. Review both copies.');
     throw Error(detail||'The cloud request was declined ('+res.status+').');
   }
   return res.json();
@@ -114,7 +114,7 @@ async function remoteView(base,revision,head){
 }
 async function cycle(useCloud=false){
   const d=await localCloud();if(!d)return;
-  if(!navigator.onLine){status('Offline. Changes are saved on this device and will sync when connected.');return;}
+  if(!navigator.onLine){status('Connection unavailable. Saved changes will sync when you reconnect.');return;}
   for(let attempt=0;attempt<5;attempt++){
     const token=localStorage.getItem('tyredesk-device-uuid');
     const pending=await pendingWrite();
@@ -138,9 +138,10 @@ async function cycle(useCloud=false){
       continue;
     }
     const head=await rpc('head');
+    databaseBytes=head.databaseBytes;
     const device=await localCloud();
     if(!useCloud&&device.revision===head.revision&&device.cleanGeneration===device.generation){
-      status('Up to date · '+(head.databaseBytes/1048576).toFixed(1)+' MB of 500 MB database allowance');return;
+      status('Shop records synced.');return;
     }
     const snap=await snapshot();
     const remote=await remoteView(snap.base,snap.device.revision,head);
@@ -163,7 +164,7 @@ async function cycle(useCloud=false){
     }
     if(revision<0||!await applyCloud(snap,merged,revision))continue;
     if(changes(snap.local,merged).length)window.dispatchEvent(new Event('tyredesk-cloud-data'));
-    blocked=false;status('Up to date · '+(head.databaseBytes/1048576).toFixed(1)+' MB of 500 MB database allowance');return;
+    blocked=false;status('Shop records synced.');return;
   }
   status('Changes are still arriving. TyreDesk will retry.');
 }

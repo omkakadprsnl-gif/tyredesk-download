@@ -16,3 +16,22 @@ The first signed-in device with shop data seeds an empty cloud database. Devices
 Local and Google Drive exports are independent recovery copies. Restoring a backup replaces the local copy and disconnects cloud sync. Cloud sign-in sessions and credentials are excluded from backup exports. The cloud database contains current records and one retry token per device. Removing a reminder deletes its cloud record and advances a revision number so long-offline devices notice the deletion.
 
 To rebuild the bundled authentication client from the pinned dependency, run npm ci and bundle the named GoTrueClient export of @supabase/auth-js with esbuild as browser ESM targeting Chrome 98. Run npm test, npm run test:cloud, npm run test:browser and npm run test:desktop.
+
+
+## Inventory and storage
+
+After setup and receipt support, apply the versioned inventory and monitoring migration in
+`supabase/migrations`. It adds structured tyre uniqueness and a mode guard without
+rewriting existing stock. Legacy products remain usable. Each new purchase retains a
+separate identity and movement in the same shop revision. If disconnected devices both
+sell the final units, the conflicting transaction requires review before cloud sync.
+
+The weekly `tyredesk-weekly-storage-check` job keeps one administrative snapshot of
+PostgreSQL and uploaded-object usage. Query `tyredesk.storage_usage` as the project
+administrator and inspect the Cron run history in Supabase. It rotates its own old
+successful job entries. TyreDesk stores no temporary supplier PDFs in Supabase.
+The last acknowledged write per device is bounded and retained for safe retries.
+
+Local backups use a shop-specific prefix or folder and preserve verified recovery
+points. Earlier backups and Google Drive exports remain available. To restore an older
+backup, use an isolated device copy and compare it with current Supabase records.

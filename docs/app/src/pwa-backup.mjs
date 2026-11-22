@@ -16,7 +16,14 @@ export function dateStamp(date=new Date()) {
 }
 export function olderBackupNames(names, retention=14) {
   const retained=[...names].filter(name=>NAME.test(name)).sort();
-  return retained.slice(0,Math.max(0,retained.length-retention));
+  const recent = new Set(retained.slice(-Math.max(2,retention)));
+  const months = new Set();
+  return retained.slice().reverse().filter(name=>{
+    const month=NAME.exec(name)[1].slice(0,7);
+    const keep=recent.has(name)||(!months.has(month)&&months.size<6);
+    months.add(month);
+    return !keep;
+  });
 }
 
 /** Browser IndexedDB can persist a FileSystemDirectoryHandle as a structured clone. */
@@ -120,9 +127,14 @@ export function createPwaBackupManager({
   async function saveBackup(json){
     await load();
     // Validate before touching files or deleting old copies.
-    await verifyTyreDeskBackup(json,subtle);
+    const parsed=await verifyTyreDeskBackup(json,subtle);
+    const shop=parsed.payload.data.settings[0];
+    if(!shop?.createdAt)throw Error('Backup is missing the shop identity.');
+    const key=await subtle.digest('SHA-256',textEncoder.encode(shop.createdAt));
+    const directory='Shop-'+[...new Uint8Array(key)].slice(0,12).map(x=>x.toString(16).padStart(2,'0')).join('');
     try{
-      const dir=await targetDirectory();
+      const root=await targetDirectory();
+      const dir=await root.getDirectoryHandle(directory,{create:true});
       const name=`TyreDesk-auto-${dateStamp(currentDate())}.json`;
       const handle=await dir.getFileHandle(name,{create:true});
       const writer=await handle.createWritable();
@@ -131,9 +143,24 @@ export function createPwaBackupManager({
       // A write is successful only after reading back the complete data.
       const saved=await (await handle.getFile()).text();
       if(saved!==json)throw Error('Backup verification failed after writing the file.');
-      const names=[];
-      for await(const [name,entry] of dir.entries())if(entry.kind==='file'&&NAME.test(name))names.push(name);
-      for(const old of olderBackupNames(names,retentionDays))await dir.removeEntry(old);
+      const month=dateStamp(currentDate()).slice(0,7);
+      const rotationKey='rotation:'+directory;
+      if (await store.get(rotationKey)!==month){
+        const names=[];
+        for await(const [candidate,entry] of dir.entries())if(entry.kind==='file'&&NAME.test(candidate))names.push(candidate);
+        const recent=names.filter(candidate=>candidate!==name).sort().at(-1);
+        if(recent){
+          let priorValid=false;
+          try{
+            const prior=await dir.getFileHandle(recent);
+            await verifyTyreDeskBackup(await (await prior.getFile()).text(),subtle);priorValid=true;
+          }catch{}
+          if(priorValid){
+            for(const old of olderBackupNames(names,retentionDays))if(old!==name&&old!==recent)await dir.removeEntry(old);
+            await store.set(rotationKey,month);
+          }
+        }
+      }
       lastSaved=currentDate().toISOString();lastError='';
       await store.set('lastSaved',lastSaved);
       return {enabled:true,lastSaved,folder:displayFolder(),error:'',needsPermission:false};

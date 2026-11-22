@@ -1,6 +1,6 @@
 // App shell cache only. User data lives in IndexedDB and is never touched here.
-const CACHE='tyredesk-pwa-web-v1.2.1-r2';
-const APP=['./src/cloud.mjs','./src/cloud-store.mjs','./src/cloud-merge.mjs','./vendor/auth.mjs','./terms.html','./privacy.html','./src/legal.mjs','./','./index.html','./styles.css','./manifest.webmanifest','./src/main.mjs','./src/pwa-backup.mjs','./src/db.mjs','./src/logic.mjs','./src/i18n.mjs','./src/invoice.mjs','./src/whatsapp.mjs','./assets/icon-192.png','./assets/icon-512.png'];
+const CACHE='tyredesk-pwa-web-v1.3.0';
+const APP=['./src/tyres.mjs','./src/tyre-ui.mjs','./src/stock-edit.mjs','./src/updates.mjs','./src/cloud.mjs','./src/cloud-store.mjs','./src/cloud-merge.mjs','./vendor/auth.mjs','./terms.html','./privacy.html','./src/legal.mjs','./','./index.html','./styles.css','./manifest.webmanifest','./src/main.mjs','./src/pwa-backup.mjs','./src/db.mjs','./src/logic.mjs','./src/i18n.mjs','./src/invoice.mjs','./src/whatsapp.mjs','./assets/icon-192.png','./assets/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP)).then(() => self.skipWaiting()));
 });
@@ -9,7 +9,7 @@ self.addEventListener('activate', event => {
 });
 self.addEventListener('fetch', event => {
   const request = event.request;
-  if(request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+  if(request.method !== 'GET' || new URL(request.url).origin !== self.location.origin || new URL(request.url).pathname.endsWith('/release.json')) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     // Serve one coherent installed app version; installing a new worker refreshes all shell files.

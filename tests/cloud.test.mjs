@@ -35,7 +35,7 @@ try{
  assert.equal(records.get('settings/shop').doc.pinHash,undefined);
  await b.context().setOffline(true);
  const bill=(page,name)=>page.evaluate(async({id,name})=>(await import('./src/db.mjs')).completeOrder({customerName:name,items:[{catalogId:id,name:'Fixture tyre',type:'tyre',qty:1,unitPaise:5000}]}),{id:ids.p,name});
- const [x,y]=await Promise.all([bill(a,'A'),bill(b,'B')]);assert.notEqual(x.number,y.number);assert.match(await sync(b),/Offline/);
+ const [x,y]=await Promise.all([bill(a,'A'),bill(b,'B')]);assert.notEqual(x.number,y.number);assert.match(await sync(b),/Connection unavailable/);
  await a.evaluate(async id=>(await import('./src/db.mjs')).completeReminder(id),ids.r);
  await b.evaluate(async id=>(await import('./src/db.mjs')).saveReminder({id,title:'Stale edit',dueAt:'2026-01-01T00:00:00.000Z'}),ids.r);
  await sync(a);await b.context().setOffline(false);await sync(b);await sync(a);
@@ -45,7 +45,7 @@ try{
  for(const p of [a,b])assert.equal((await data(p)).payments.length,1);
  control.paused=true;await a.evaluate(async()=>(await import('./src/db.mjs')).addExpense({amountPaise:300,description:'Offline expense'}));assert.match(await sync(a),/paused/i);
  control.paused=false;await sync(a);await sync(b);assert.equal((await data(b)).expenses.length,1);
- await a.reload();await sync(a);assert.match(await sync(a),/Up to date/);
+ await a.reload();await sync(a);assert.match(await sync(a),/Shop records synced/);
  const fresh=await open();assert.equal(await fresh.locator('#setup-form,[name=project],[name=key]').count(),0);
  control.failRead=true;await signIn(fresh);await fresh.waitForSelector('[data-action=account-retry]');assert.equal(await fresh.locator('#setup-form').count(),0);
  control.failRead=false;await fresh.locator('[data-action=account-retry]').click();await fresh.waitForSelector('#device-pin-form');assert.equal(await fresh.locator('#setup-form').count(),0);

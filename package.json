@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/reminders.test.mjs && node tests/features.test.mjs",
+    "test": "node tests/reminders.test.mjs && node tests/features.test.mjs && node tests/inventory.test.mjs",
     "test:browser": "node tests/browser.test.mjs",
     "test:desktop": "node tests/desktop.test.mjs",
     "test:cloud": "node tests/cloud.test.mjs"

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#171d1b" />
-  <meta name="description" content="TyreDesk — privately managed, beautifully designed, fully offline billing software for tyre shops and alignment centres." />
+  <meta name="description" content="TyreDesk — billing, inventory and private shop sync for tyre shops and alignment centres." />
   <meta name="color-scheme" content="light dark" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png" />
@@ -13,7 +13,7 @@
   <title>TyreDesk — The workshop, in order.</title>
 </head>
 <body>
-  <div id="app"><div class="boot"><div class="boot-wheel"></div><span>TYREDESK</span><p>Starting your offline workspace…</p></div></div>
+  <div id="app"><div class="boot"><div class="boot-wheel"></div><span>TYREDESK</span><p>Opening your shop…</p></div></div>
   <noscript>This application needs JavaScript to run. No internet is required after installation.</noscript>
   <script type="module" src="./src/main.mjs"></script>
 <style>
@@ -24,7 +24,7 @@
 @media(max-width:500px){#install-prompt-strip{bottom:75px;padding:10px;gap:8px}#install-prompt-strip p{display:none}#install-prompt-strip button{padding:10px}}
 @media(display-mode:standalone){#install-prompt-strip{display:none!important}}
 </style>
-<div id="install-prompt-strip" role="status"><div><strong>Install TyreDesk on this PC</strong><p>Open it from your desktop and use it offline.</p></div><button type="button" id="install-pwa-now">Install app</button></div>
+<div id="install-prompt-strip" role="status"><div><strong>Install TyreDesk on this PC</strong><p>Open it directly from your desktop.</p></div><button type="button" id="install-pwa-now">Install app</button></div>
 <script>
 (function(){
  const bar=document.getElementById('install-prompt-strip');const button=document.getElementById('install-pwa-now');

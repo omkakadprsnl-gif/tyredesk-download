@@ -22,6 +22,7 @@ try{
  assert.equal(await page.locator('[name=legalConsent]').isChecked(),false);
  for(const [n,v] of Object.entries({name:'Test Tyres',owner:'Test Owner',phone:'9999999999',pin:'1234',confirmPin:'1234'}))await page.locator(`#setup-form [name=${n}]`).fill(v);
  await page.locator('#setup-form button[type=submit]').click();assert.equal((await read()).settings,undefined);
+ await page.locator('[name=inventoryMode][value=simple]').check();
  await page.locator('[name=legalConsent]').check();await page.locator('#setup-form button[type=submit]').click();await page.waitForSelector('.shell');assert.equal((await read()).settings.legalConsent.termsVersion,'2026-11-21.2');
  // Create, edit and complete a reminder through the UI.
  await page.locator('[data-action=add-reminder]').click();await page.locator('#reminder-form [name=title]').fill('Call supplier');await page.locator('#reminder-form [name=notes]').fill('Check delivery');await page.locator('#reminder-form [name=due]').fill('2020-01-01T10:30');await page.locator('[form=reminder-form]').click();await page.waitForSelector('.reminder-bell.is-alert');
@@ -42,13 +43,19 @@ try{
  await page.locator('[data-action=draft-payment]').click();await page.locator('#draft-payment-form [name=amount]').fill('100');await page.locator('#draft-payment-form [name=verified]').check();await page.locator('[form=draft-payment-form]').click();
  await page.waitForFunction(()=>document.querySelector('.draft-qr h3')?.textContent.includes('50'));assert.equal((await read()).payments.length,2);
  await page.reload();await page.waitForSelector('.shell');await nav('billing');assert.equal(await page.locator('#bill-customer-name').inputValue(),'Draft QR customer');await page.locator('#save-bill').click();
- await page.waitForFunction(async()=>((await (await import('./src/db.mjs')).all('orders')).length===2));
+ await page.waitForFunction(async()=>((await (await import('./src/db.mjs')).all('orders')).some(o=>o.customerSnapshot.name==='Draft QR customer')));
  const draft=(await read()).orders.find(o=>o.customerSnapshot.name==='Draft QR customer');assert.equal(draft.duePaise,5000);assert.equal((await read()).payments.filter(p=>p.orderId===draft.id).length,1);
  await page.locator('[data-action=close-modal]').first().click();
- await nav('billing');await page.getByRole('button',{name:/Draft service/}).click();assert.equal(await page.locator('[data-line-field=unitPaise]').last().inputValue(),'150.00');
+ await nav('billing');const service=page.locator('#bill-service option').filter({hasText:'Draft service'});await page.locator('#bill-service').selectOption(await service.getAttribute('value'));assert.equal(await page.locator('[data-line-field=unitPaise]').last().inputValue(),'150.00');
  await nav('inventory');
  assert.equal(await page.getByText('Import supplier PDF',{exact:true}).count(),0);
- await page.evaluate(async()=>{const d=await import('./src/db.mjs');const p=await d.addCatalogItem({name:'Manual tyre',type:'tyre',pricePaise:600000});await d.recordPurchase({productId:p.id,qty:4,costPaise:300000,supplier:'Supplier',reference:'S-1'});const backup=await d.exportBackup();await (await import('./src/cloud.mjs')).restoreOffline(()=>d.restoreBackup(backup,{disconnectCloud:true}));});assert.ok((await read()).settings.paymentQrData);assert.equal((await read()).purchases.length,1);
+ await page.locator('[data-action=buy-tyres]').click();
+ assert.equal(await page.locator('#purchase-form [name=model],#purchase-form [name=size]').count(),0);
+ for(const [key,value] of Object.entries({brand:'Manual tyre',qty:'4',cost:'3000',price:'6000',supplier:'Supplier'}))
+  await page.locator('#purchase-form [name='+key+']').fill(value);
+ await page.locator('[form=purchase-form]').click();
+ await page.waitForFunction(()=>!document.querySelector('#purchase-form'));
+ await page.evaluate(async()=>{const d=await import('./src/db.mjs');const backup=await d.exportBackup();await (await import('./src/cloud.mjs')).restoreOffline(()=>d.restoreBackup(backup,{disconnectCloud:true}));});assert.ok((await read()).settings.paymentQrData);assert.equal((await read()).purchases.length,1);
  await page.evaluate(async()=>{await navigator.serviceWorker.ready;});await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);await context.setOffline(true);await page.reload();await page.waitForSelector('.shell');await nav('inventory');assert.equal((await read()).catalog.find(p=>p.name==='Manual tyre').stockQty,4);
  await page.goto(base+'terms.html');assert.match(await page.textContent('h1'),/Terms/);await page.goto(base+'privacy.html');assert.match(await page.textContent('h1'),/Privacy/);
  assert.deepEqual(errors,[]);console.log((desktop?'Desktop':'Mobile')+' consent, reminders, draft QR, payments, manual stock, backups and offline use: PASS');
