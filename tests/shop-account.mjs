@@ -1,6 +1,6 @@
 export function mockShopAccount({ref='aaaaaaaaaaaaaaaaaaaa',alias='fixture',owner='test-owner'}={}){
  const records=new Map(),devices=new Map(),receipts=new Map();
- let revision=0,lastDelete=0;
+ let revision=0,lastDelete=0,billing;
  const control={paused:false,loseAck:false};
  async function attach(ctx){
  await ctx.route('https://omkakadprsnl-gif.github.io/tyredesk-download/shop-directory.json',route=>
@@ -20,7 +20,29 @@ export function mockShopAccount({ref='aaaaaaaaaaaaaaaaaaaa',alias='fixture',owne
   if(endpoint==='tyredesk_head')return send({revision,lastDelete,databaseBytes:1024});
   if(endpoint==='tyredesk_receipt')return send(receipts.get(b.write_token)??-1);
   if(endpoint==='tyredesk_page')return send([...records.values()].filter(x=>x.rev>b.since_revision&&(x.kind>b.after_kind||x.kind===b.after_kind&&x.key>b.after_key)).sort((x,y)=>x.kind<y.kind?-1:x.kind>y.kind?1:x.key<y.key?-1:1).slice(0,100));
-  if(endpoint==='tyredesk_commit'){
+  const owns=!!billing&&billing.device===b.device_token&&billing.token===b.grant_token;
+  if(endpoint==='tyredesk_billing_status')return send(owns?'own':billing?'busy':'free');
+  if(endpoint==='tyredesk_billing_claim'){
+    if(owns)return send('own');
+    if(billing)return send('busy');
+    if(b.expected_revision!==revision)return send('stale');
+    billing={device:b.device_token,token:b.grant_token};
+    if(control.loseClaimAck){control.loseClaimAck=false;return route.abort('connectionreset');}
+    return send('own');
+  }
+  if(endpoint==='tyredesk_billing_release'){
+    if(owns){
+      if(b.expected_revision!==revision)return send('stale');
+      billing=undefined;
+      revision++;
+      if(control.loseReleaseAck){control.loseReleaseAck=false;return route.abort('connectionreset');}
+    }
+    return send('released');
+  }
+  if(endpoint==='tyredesk_commit'||endpoint==='tyredesk_billing_commit'){
+    if(endpoint==='tyredesk_commit'&&(revision!==0||b.changes.length!==1||b.changes[0].kind!=='settings'))
+      return send({message:'Update TyreDesk and start billing on this device'},400);
+    if(endpoint==='tyredesk_billing_commit'&&!owns)return send({message:'This device does not hold billing access'},400);
     if(receipts.has(b.write_token))return send(receipts.get(b.write_token));
     if(b.expected_revision!==revision)return send(-1);
     revision++;for(const c of b.changes){const k=c.kind+'/'+c.key;if(c.doc)records.set(k,{...c,rev:revision});else{records.delete(k);lastDelete=revision;}}

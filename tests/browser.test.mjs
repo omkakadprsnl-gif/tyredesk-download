@@ -24,6 +24,8 @@ try{
  await page.locator('#setup-form button[type=submit]').click();assert.equal((await read()).settings,undefined);
  await page.locator('[name=inventoryMode][value=simple]').check();
  await page.locator('[name=legalConsent]').check();await page.locator('#setup-form button[type=submit]').click();await page.waitForSelector('.shell');assert.equal((await read()).settings.legalConsent.termsVersion,'2026-11-21.2');
+ await page.getByRole('button',{name:'Start billing',exact:true}).click();
+ await page.getByRole('button',{name:'Finish and switch',exact:true}).waitFor();
  const homeActions=page.locator('.dash-home-tools > button');
  assert.equal(await homeActions.count(),2);
  assert.match(await homeActions.first().textContent(),/Add reminder/i);
@@ -68,6 +70,14 @@ try{
   await page.locator('#purchase-form [name='+key+']').fill(value);
  await page.locator('[form=purchase-form]').click();
  await page.waitForFunction(()=>!document.querySelector('#purchase-form'));
+ await page.evaluate(async()=>{await navigator.serviceWorker.ready;});await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
+ await context.setOffline(true);await page.reload();await page.waitForSelector('.shell');await nav('billing');
+ await page.getByRole('button',{name:'Finish and switch',exact:true}).waitFor();
+ assert.equal(await page.locator('#bill-customer-name').isVisible(),true);
+ await context.setOffline(false);
+ await page.getByRole('button',{name:'Finish and switch',exact:true}).click();
+ await page.getByRole('button',{name:'Start billing',exact:true}).waitFor();
+ assert.equal(await page.locator('#bill-customer-name').isVisible(),false);
  await page.evaluate(async()=>{const d=await import('./src/db.mjs');const backup=await d.exportBackup();await (await import('./src/cloud.mjs')).restoreOffline(()=>d.restoreBackup(backup,{disconnectCloud:true}));});assert.ok((await read()).settings.paymentQrData);assert.equal((await read()).purchases.length,1);
  await page.evaluate(async()=>{await navigator.serviceWorker.ready;});await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);await context.setOffline(true);await page.reload();await page.waitForSelector('.shell');await nav('inventory');assert.equal((await read()).catalog.find(p=>p.name==='Manual tyre').stockQty,4);
  await page.goto(base+'terms.html');assert.match(await page.textContent('h1'),/Terms/);await page.goto(base+'privacy.html');assert.match(await page.textContent('h1'),/Privacy/);

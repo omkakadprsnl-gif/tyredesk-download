@@ -23,36 +23,76 @@ async function open(){
 }
 const login=page=>page.evaluate(async()=>{await (await import('./src/cloud.mjs')).loginCloud({username:'fixture',password:'fixture-only',pin:{pinHash:'local',pinSalt:'00'}});});
 const data=page=>page.evaluate(async()=>(await import('./src/db.mjs')).summaryData());
+const handover=(page,action)=>page.evaluate(async action=>(await import('./src/cloud.mjs'))[action](),action);
 try{
  const a=await open(),b=await open();
+ await a.evaluate(async()=>{
+  const c=await import('./src/cloud.mjs');
+  await c.loginCloud({username:'fixture',password:'fixture-only',onboarding:true});
+  await c.finishFirstSetup({id:'shop',name:'Fixture',owner:'Owner',createdAt:'2026-01-01',
+    language:'en',pinHash:'local',pinSalt:'00',inventoryMode:'simple',paymentQrData:'data:image/png;base64,AA=='});
+ });
+ await login(b);
+ const stock=(page,id,qty)=>page.evaluate(async({id,qty})=>(await import('./src/db.mjs')).adjustStock(id,qty,'Handover fixture'),{id,qty});
+ control.loseClaimAck=true;
+ await assert.rejects(handover(a,'startBilling'),/fetch/i);
+ await handover(b,'startBilling');
+ await handover(a,'startBilling');
  const ids=await a.evaluate(async()=>{
   const d=await import('./src/db.mjs');
-  await d.saveSetting({name:'Fixture',owner:'Owner',createdAt:'2026-01-01',language:'en',pinHash:'local',pinSalt:'00',paymentQrData:'data:image/png;base64,AA=='});
-  await d.put('cloudState',{id:'backupBinding',project:'aaaaaaaaaaaaaaaaaaaa',user:'test-owner'});
-  const p=await d.addCatalogItem({name:'Fixture tyre',type:'tyre',openingStockQty:6});
+  const p=await d.addCatalogItem({brand:'MRF',name:'Fixture tyre',type:'tyre',openingStockQty:1});
   const r=await d.saveReminder({title:'Call supplier',dueAt:'2026-01-01T00:00:00.000Z'});return {p:p.id,r:r.id};
  });
- await login(a);await login(b);assert.equal((await data(b)).catalog[0].stockQty,6);assert.equal((await data(b)).settings.paymentQrData,(await data(a)).settings.paymentQrData);
+ await sync(a);await sync(b);
+ assert.equal((await data(b)).catalog[0].stockQty,1);assert.equal((await data(b)).settings.paymentQrData,(await data(a)).settings.paymentQrData);
  assert.equal(records.get('settings/shop').doc.pinHash,undefined);
- await b.context().setOffline(true);
  const bill=(page,name)=>page.evaluate(async({id,name})=>(await import('./src/db.mjs')).completeOrder({customerName:name,items:[{catalogId:id,name:'Fixture tyre',type:'tyre',qty:1,unitPaise:5000}]}),{id:ids.p,name});
- const [x,y]=await Promise.all([bill(a,'A'),bill(b,'B')]);assert.notEqual(x.number,y.number);assert.match(await sync(b),/Connection unavailable/);
+ await a.context().setOffline(true);
+ const [sale,rejected]=await Promise.allSettled([bill(a,'A'),bill(b,'B')]);
+ assert.equal(sale.status,'fulfilled');const x=sale.value;
+ assert.match(rejected.reason.message,/view-only/);
+ assert.match(await sync(a),/Connection unavailable/);
+ await assert.rejects(handover(a,'finishBilling'),/Connect to the internet/);
+ await handover(b,'startBilling');
+ await assert.rejects(stock(b,ids.p,1),/view-only/);
  await a.evaluate(async id=>(await import('./src/db.mjs')).completeReminder(id),ids.r);
- await b.evaluate(async id=>(await import('./src/db.mjs')).saveReminder({id,title:'Stale edit',dueAt:'2026-01-01T00:00:00.000Z'}),ids.r);
- await sync(a);await b.context().setOffline(false);await sync(b);await sync(a);
- for(const p of [a,b]){const d=await data(p);assert.equal(d.orders.length,2);assert.equal(d.catalog[0].stockQty,4);assert.equal(d.reminders.length,0);}
  const pay=page=>page.evaluate(async id=>(await import('./src/db.mjs')).addPayment(id,5000,'upi','','qr-test-'+id),x.id);
- await Promise.all([pay(a),pay(b)]);control.loseAck=true;await sync(a);await sync(b);await sync(a);await sync(b);
- for(const p of [a,b])assert.equal((await data(p)).payments.length,1);
- control.paused=true;await a.evaluate(async()=>(await import('./src/db.mjs')).addExpense({amountPaise:300,description:'Offline expense'}));assert.match(await sync(a),/paused/i);
- control.paused=false;await sync(a);await sync(b);assert.equal((await data(b)).expenses.length,1);
- await a.reload();await sync(a);assert.match(await sync(a),/Shop records synced/);
+ await Promise.all([pay(a),pay(a)]);
+ const tab=await a.context().newPage();
+ await a.context().setOffline(false);
+ await tab.goto(url);await tab.waitForSelector('#cloud-form, #unlock-form, .shell');
+ const saved=await a.evaluate(async()=>(await import('./src/db.mjs')).exportBackup());
+ await assert.rejects(a.evaluate(async backup=>(await import('./src/db.mjs')).restoreBackup(backup,{disconnectCloud:true}),saved),/Finish and switch/);
+ await assert.rejects(handover(a,'logoutCloud'),/Finish and switch/);
+ const expense=page=>page.evaluate(async()=>(await import('./src/db.mjs')).addExpense({amountPaise:300,description:'Offline expense'}));
+ control.paused=true;
+ await expense(a);assert.match(await sync(a),/paused/i);
+ await assert.rejects(handover(a,'finishBilling'),/paused/i);
+ await assert.rejects(expense(tab),/switching devices/);
+ await assert.rejects(handover(b,'startBilling'),/paused/i);
+ control.paused=false;control.loseAck=true;
+ await sync(a);await sync(a);
+ control.loseReleaseAck=true;
+ await assert.rejects(handover(a,'finishBilling'),/fetch/i);
+ await handover(b,'startBilling');
+ await assert.rejects(bill(b,'Last tyre B'),/Insufficient stock/);
+ await assert.rejects(bill(a,'Old device'),/switching devices/);
+ await handover(a,'finishBilling');
+ await assert.rejects(bill(a,'Old device'),/view-only/);
+ await stock(b,ids.p,1);
+ const y=await bill(b,'B after restocking');assert.notEqual(x.number,y.number);
+ await sync(b);await sync(a);
+ for(const p of [a,b]){
+  const d=await data(p);assert.equal(d.orders.length,2);assert.equal(d.catalog[0].stockQty,0);
+  assert.equal(d.reminders.length,0);assert.equal(d.payments.length,1);assert.equal(d.expenses.length,1);
+ }
  const fresh=await open();assert.equal(await fresh.locator('#setup-form,[name=project],[name=key]').count(),0);
  control.failRead=true;await signIn(fresh);await fresh.waitForSelector('[data-action=account-retry]');assert.equal(await fresh.locator('#setup-form').count(),0);
  control.failRead=false;await fresh.locator('[data-action=account-retry]').click();await fresh.waitForSelector('#device-pin-form');assert.equal(await fresh.locator('#setup-form').count(),0);
  await fresh.locator('[name=devicePin]').fill('1234');await fresh.locator('[name=repeatPin]').fill('1234');
  await fresh.locator('#device-pin-form button').click();await fresh.waitForSelector('.shell');const recovered=await data(fresh);
  await fresh.reload();await fresh.waitForSelector('.shell');assert.equal(await fresh.locator('#cloud-form,#setup-form').count(),0);
+ await fresh.getByText('Billing is open on another device.',{exact:false}).waitFor();
  assert.equal(recovered.orders.length,2);assert.equal(recovered.reminders.length,0);assert.equal(recovered.payments.length,1);assert.equal(recovered.expenses.length,1);
  const secondShop=mockShopAccount({ref:'bbbbbbbbbbbbbbbbbbbb',alias:'second',owner:'second-owner'});
  const secondContext=await browser.newContext({serviceWorkers:'block'});
@@ -62,7 +102,6 @@ try{
  await second.evaluate(async backup=>(await import('./src/db.mjs')).restoreBackup(backup),sourceBackup);
  await assert.rejects(second.evaluate(async()=>(await import('./src/cloud.mjs')).loginCloud({username:'second',password:'fixture-only'})),/different shop/);
  assert.equal(secondShop.records.size,0);
- const clean=await secondContext.newPage();
  // A separate storage context can provision the intended shop from the directory.
  const thirdContext=await browser.newContext({serviceWorkers:'block'});
  await secondShop.attach(thirdContext);
@@ -76,20 +115,9 @@ try{
  assert.equal((await data(third)).orders.length,0);
  assert.equal(secondShop.records.get('settings/shop').doc.name,'Independent second shop');
  assert.equal(records.get('settings/shop').doc.name,'Fixture');
- await clean.close();
- // Release blocker reproduced on disposable devices. Each device already issued
- // a local invoice. The cloud rejects the losing sale instead of making stock negative.
- await a.evaluate(async id=>(await import('./src/db.mjs')).adjustStock(id,-3,'Last-tyre fixture'),ids.p);
- await sync(a);await sync(b);
- await b.context().setOffline(true);
- const accepted=await bill(a,'Last available tyre A');
- const laterConflict=await bill(b,'Last available tyre B');
- assert.notEqual(accepted.id,laterConflict.id);
- await sync(a);await b.context().setOffline(false);
- assert.match(await sync(b),/remaining stock/);
- assert.equal(records.get('catalog/'+ids.p).doc.stockQty,0);
- assert.ok((await data(b)).orders.some(o=>o.id===laterConflict.id));
- assert.equal(records.has('orders/'+laterConflict.id),false);
- console.log('RELEASE BLOCKER REPRODUCED: simultaneous local invoices for the final tyre, one rejected at sync');
- console.log('PASS: independent devices, offline bills, stock, retried payment, reminder deletion, paused service, persistent login and recovery');
+ await handover(b,'finishBilling');
+ await Promise.all([handover(a,'startBilling'),handover(b,'startBilling')]);
+ const competingWrites=await Promise.allSettled([expense(a),expense(b)]);
+ assert.equal(competingWrites.filter(result=>result.status==='fulfilled').length,1);
+ console.log('PASS: two billing devices, offline exclusivity, last-tyre protection, release and claim retries, paused service, duplicate payment prevention and shop recovery');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

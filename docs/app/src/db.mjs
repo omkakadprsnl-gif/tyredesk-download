@@ -49,14 +49,24 @@ export function getDatabase(){
   });
   return dbPromise;
 }
+function requireBillingAccess(device,binding){
+  if(device?.billing?.phase==='switching')throw Error('Billing is switching devices. Finish the handover before making changes.');
+  if((device||binding)&&device?.billing?.phase!=='active')
+    throw Error('This device is view-only. Choose Start billing to make changes.');
+}
 export async function transact(storeNames,mode,fn){
   const db=await getDatabase();
   const tracked=mode==='readwrite'&&!storeNames.includes('cloudState')&&storeNames.some(s=>s!=='audit');
   const tx=db.transaction(tracked?[...storeNames,'cloudState']:storeNames,mode);
   let result; let finished=false;
   const complete=new Promise((resolve,reject)=>{ tx.oncomplete=()=>{finished=true;resolve();};tx.onerror=()=>reject(tx.error||new Error('Storage error'));tx.onabort=()=>reject(tx.error||new Error('Transaction cancelled')); });
-  try {result=await fn(tx);
-    if(tracked){const s=tx.objectStore('cloudState'),d=await request(s.get('device'));if(d)await request(s.put({...d,generation:d.generation+1}));}} catch(err) {try{if(!finished)tx.abort();}catch{} await complete.catch(()=>{});throw err;}
+  try {
+    const state=tracked?tx.objectStore('cloudState'):null;
+    const device=state&&await request(state.get('device'));
+    if(state)requireBillingAccess(device,device?null:await request(state.get('backupBinding')));
+    result=await fn(tx);
+    if(device)await request(state.put({...device,generation:device.generation+1}));
+  } catch(err) {try{if(!finished)tx.abort();}catch{} await complete.catch(()=>{});throw err;}
   await complete;
   return result;
 }
@@ -433,6 +443,9 @@ export async function restoreBackup(json,{disconnectCloud=false}={}){
     const state=tx.objectStore('cloudState');
     const device=await request(state.get('device'));
     const current=device||await request(state.get('backupBinding'));
+    if(device?.billing)throw Error('Finish and switch billing before restoring a backup.');
+    if(device&&((device.revision>=0&&device.generation!==device.cleanGeneration)||await request(state.get('pending'))))
+      throw Error('Sync this device’s saved changes before restoring a backup.');
     if(device&&!disconnectCloud)throw Error('Confirm restoring this device as an offline copy first.');
     if(current&&binding&&(current.project!==binding.project||current.user!==binding.user))throw Error('This backup belongs to a different shop.');
     const restoredDrafts=new Set(drafts.map(d=>d.id));
@@ -450,13 +463,16 @@ export async function restoreBackup(json,{disconnectCloud=false}={}){
 
 export async function saveReceivedDraft(bill){
   return transact(['cloudState','orders'],'readwrite',async tx=>{
+    const state=tx.objectStore('cloudState');
+    requireBillingAccess(await request(state.get('device')),await request(state.get('backupBinding')));
     if(await request(tx.objectStore('orders').index('requestId').get(bill.requestId)))throw Error('This draft already has an invoice.');
-    await request(tx.objectStore('cloudState').put({id:'draft-'+bill.requestId,bill:{...bill,saving:false}}));
+    await request(state.put({id:'draft-'+bill.requestId,bill:{...bill,saving:false}}));
   });
 }
-export async function receivedDraft(){
-  return transact(['cloudState'],'readonly',async tx=>{
+export async function receivedDraft(transaction){
+  const read=async tx=>{
     const rows=await request(tx.objectStore('cloudState').getAll(DRAFT_KEYS(),1));
     return rows[0]?.bill;
-  });
+  };
+  return transaction?read(transaction):transact(['cloudState'],'readonly',read);
 }

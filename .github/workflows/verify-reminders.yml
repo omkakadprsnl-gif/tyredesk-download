@@ -2,10 +2,11 @@ name: Verify TyreDesk features and offline app
 on:
   workflow_dispatch:
   push:
-    branches: [main, tyredesk-1.3.0-release, commercial-audit-20261122]
+    branches: [main, tyredesk-1.3.0-release, commercial-audit-20261122, billing-handover]
     paths:
       - 'docs/app/**'
       - 'tests/**'
+      - 'supabase/migrations/**'
       - 'package*.json'
       - '.github/workflows/verify-reminders.yml'
 permissions:

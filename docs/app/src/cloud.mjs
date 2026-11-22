@@ -1,5 +1,5 @@
 import {GoTrueClient} from '../vendor/auth.mjs';
-import {bindCloud,localCloud,snapshot,applyCloud,pendingWrite,stageWrite,clearWrite} from './cloud-store.mjs';
+import {bindCloud,localCloud,setBillingState,snapshot,applyCloud,pendingWrite,stageWrite,clearWrite} from './cloud-store.mjs';
 import {get,getSetting,put,remove} from './db.mjs';
 import {reconcile,changes,rowKey,cloudRecord,SyncConflict} from './cloud-merge.mjs';
 
@@ -12,9 +12,10 @@ const selected=()=>{
   catch{return defaultProject;}
 };
 let client=null, running=null, message='Sign in to sync this shop across devices.', blocked=false, timer, databaseBytes;
+let billingAccess=null, billingBusy=false;
 const notify=()=>window.dispatchEvent(new Event('tyredesk-cloud-status'));
 function status(value){message=value;notify();}
-export const cloudStatus=()=>({message,blocked,databaseBytes,dashboard:'https://supabase.com/dashboard/project/'+selected().ref});
+export const cloudStatus=()=>({message,blocked,databaseBytes,billingAccess,billingBusy,dashboard:'https://supabase.com/dashboard/project/'+selected().ref});
 function setupClient(){
   if(client)return client;
   const {ref,key}=selected();
@@ -126,9 +127,88 @@ export async function finishFirstSetup(profile){
   await restoreAccount();
 }
 export async function logoutCloud(){
-  if(running)await running;
-  const {error}=await setupClient().signOut({scope:'local'});if(error)throw error;
-  status('Signed out on this device. Local records are available with the shop PIN.');
+  return withSyncLock(async()=>{
+    const device=await localCloud();
+    if(device?.billing)throw Error('Finish and switch billing before signing out.');
+    if(await pendingWrite()||(device?.revision>=0&&device.generation!==device.cleanGeneration))
+      throw Error('Sync this device’s saved changes before signing out.');
+    const {error}=await setupClient().signOut({scope:'local'});if(error)throw error;
+    billingAccess=device?'view':null;
+    status('Signed out on this device. Local records are available with the shop PIN.');
+  });
+}
+const deviceToken=()=>localStorage.getItem('tyredesk-device-uuid');
+const withSyncLock=run=>navigator.locks?navigator.locks.request('tyredesk-sync',run):run();
+const billingRpc=(action,billing,extra)=>rpc('billing_'+action,{device_token:deviceToken(),grant_token:billing?.token??null,...extra});
+async function refreshBilling(online=false){
+  const device=await localCloud();
+  let access=device?.billing?.phase||(device?'view':null);
+  if(!device&&await get('cloudState','backupBinding'))access='disconnected';
+  if(online&&access==='view'){
+    try{if(await billingRpc('status')==='busy')access='busy';}catch{}
+  }
+  if(access!==billingAccess){billingAccess=access;notify();}
+}
+async function billingAction(run){
+  if(!navigator.locks)throw Error('Update your browser or Android System WebView to switch billing devices.');
+  if(billingBusy)return;
+  billingBusy=true;notify();
+  try{return await withSyncLock(async()=>{
+    if(!navigator.onLine)throw Error('Connect to the internet to switch billing devices.');
+    return run();
+  });}
+  finally{
+    billingBusy=false;
+    await refreshBilling(navigator.onLine);
+    notify();
+  }
+}
+async function syncForBilling(){
+  await cycle();
+  const device=await localCloud();
+  if(device.revision<0||device.generation!==device.cleanGeneration||await pendingWrite())
+    throw Error('Billing cannot switch until all changes on this device have synced.');
+  return device.revision;
+}
+export function startBilling(){
+  return billingAction(async()=>{
+    const device=await localCloud();
+    if(!device)throw Error('Sign in to start billing.');
+    if(device.billing?.phase==='active')return;
+    if(device.billing?.phase==='switching')throw Error('Finish switching billing before starting again.');
+    const billing=device.billing||{phase:'claiming',token:crypto.randomUUID()};
+    if(!device.billing)await setBillingState(billing);
+    if(await billingRpc('status',billing)==='busy'){
+      await setBillingState(undefined);
+      return;
+    }
+    let revision;
+    try{revision=await syncForBilling();}
+    catch(error){
+      // A persisted claim may already have reached the server after a lost response.
+      if(await billingRpc('status',billing)==='free')await setBillingState(undefined);
+      throw error;
+    }
+    const result=await billingRpc('claim',billing,{expected_revision:revision});
+    if(result==='own')await setBillingState({...billing,phase:'active'});
+    else if(result==='busy'||result==='stale'){
+      await setBillingState(undefined);
+      if(result==='stale')throw Error('Shop records changed. Tap Start billing to load the latest copy.');
+    }else throw Error('Could not confirm billing access. Tap Retry start billing.');
+  });
+}
+export function finishBilling(){
+  return billingAction(async()=>{
+    const device=await localCloud();
+    if(!device?.billing||!['active','switching'].includes(device.billing.phase))return;
+    const billing={...device.billing,phase:'switching'};
+    await setBillingState(billing,{requireSavedDraft:true});
+    await refreshBilling();
+    const revision=await syncForBilling();
+    const result=await billingRpc('release',billing,{expected_revision:revision});
+    if(result!=='released')throw Error('Could not confirm the handover. Tap Retry handover.');
+    await setBillingState(undefined);
+  });
 }
 async function remoteView(base,revision,head){
   const full=revision<0||revision<head.lastDelete;
@@ -144,9 +224,10 @@ async function remoteView(base,revision,head){
 }
 async function cycle(useCloud=false){
   const d=await localCloud();if(!d)return;
+  if(useCloud&&d.billing)throw Error('Finish and switch billing before replacing this device’s records.');
   if(!navigator.onLine){status('Connection unavailable. Saved changes will sync when you reconnect.');return;}
   for(let attempt=0;attempt<5;attempt++){
-    const token=localStorage.getItem('tyredesk-device-uuid');
+    const token=deviceToken();
     const pending=await pendingWrite();
     if(pending&&useCloud){await clearWrite();continue;}
     if(pending){
@@ -161,7 +242,7 @@ async function cycle(useCloud=false){
       // exact payload until the server definitively accepts or rejects the revision.
       const head=await rpc('head');
       if(head.revision===pending.expected){
-        const rev=await rpc('commit',{expected_revision:pending.expected,changes:pending.outgoing,device_token:token,write_token:pending.token});
+        const rev=await commitBilling(d,pending);
         if(rev>=0)continue;
       }
       await clearWrite();
@@ -188,10 +269,11 @@ async function cycle(useCloud=false){
     const outgoing=changes(remote,merged);
     let revision=head.revision;
     if(outgoing.length){
+      validateBillingGrant(snap.device);
       const pending=await stageWrite(snap,merged,head.revision,outgoing);
       if(!pending)continue;
       try{
-        revision=await rpc('commit',{expected_revision:head.revision,changes:outgoing,device_token:token,write_token:pending.token});
+        revision=await commitBilling(snap.device,pending);
       }catch(e){if(e instanceof SyncConflict)await clearWrite();throw e;}
       if(revision<0){await clearWrite();continue;}
     }
@@ -201,10 +283,18 @@ async function cycle(useCloud=false){
   }
   status('Changes are still arriving. TyreDesk will retry.');
 }
+function validateBillingGrant(device){
+  if(!['active','switching'].includes(device.billing?.phase))
+    throw Error('This device has changes from before billing access was set up. Export a backup and contact support to reconcile them.');
+}
+function commitBilling(device,pending){
+  validateBillingGrant(device);
+  return billingRpc('commit',device.billing,{expected_revision:pending.expected,changes:pending.outgoing,write_token:pending.token});
+}
 export function syncCloud(useCloud=false){
   if(running)return useCloud?running.then(()=>syncCloud(true)):running;
-  const run=()=>cycle(useCloud);
-  running=(navigator.locks?navigator.locks.request("tyredesk-sync",run):run()).catch(e=>{blocked=e instanceof SyncConflict;status(e instanceof TypeError||e.name==='TimeoutError'?'Could not reach Supabase. Local changes are saved. Check your connection or project dashboard.':e.message);}).finally(()=>{running=null;});
+  const run=async()=>{await refreshBilling(navigator.onLine);await cycle(useCloud);};
+  running=withSyncLock(run).catch(e=>{blocked=e instanceof SyncConflict;status(e instanceof TypeError||e.name==='TimeoutError'?'Could not reach Supabase. Local changes are saved. Check your connection or project dashboard.':e.message);}).finally(()=>{running=null;});
   return running;
 }
 export function startCloud(){
@@ -220,7 +310,7 @@ export async function restoreOffline(restore){
    if(client){await client.dispose();client=null;}
    const ref=selected().ref;localStorage.removeItem('tyredesk-session-'+ref);
    localStorage.removeItem('tyredesk-device-uuid');localStorage.removeItem(preference);
-   blocked=false;status('Restored offline. Sign in to reconnect to the shop cloud.');return result;
+   blocked=false;await refreshBilling();status('Restored offline. Sign in to reconnect to the shop cloud.');return result;
  };
  if(running)await running;
  return navigator.locks?navigator.locks.request('tyredesk-sync',run):run();

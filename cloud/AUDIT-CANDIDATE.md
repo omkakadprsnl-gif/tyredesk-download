@@ -34,5 +34,13 @@ node tests/mobile-inventory.test.mjs
 node tests/audit-load.mjs
 ```
 
-The last-stock contention test documents the release blocker. A green regression run confirms the defect is reproducible under the current architecture, along with the expected protection against negative shared stock.
+## Billing device handover
+
+Each linked shop has one device that can issue invoices and make business changes. Other devices can read synchronized records. The owner starts billing while connected. The issuing device keeps access when the connection drops.
+
+To switch, save any draft with a confirmed payment, reconnect, and select **Finish and switch**. TyreDesk freezes new writes on that device, uploads its saved changes, and releases billing. On the other device, select **Start billing** to bring its records up to date and claim access. After an interrupted handover, use **Retry handover** on the original device. The grant stays in effect until the server releases it.
+
+Back up and sync all devices before rollout. Install the matching app on every issuing device and close older app copies at cutover. Apply the billing handover migration after the restricted-business-tables migration. Earlier app versions can still create local invoices and their writes will be rejected by the migrated cloud. Validate the matching clients with a disposable hosted Supabase project and check the installed Android upgrade before changing any live project.
+
+If the device holding access is lost, follow the recovery procedure above and reconcile unsynced transactions against physical stock and payment records before any administrative intervention.
 
