@@ -1,3 +1,11 @@
+# TyreDesk 1.3.7
+
+Billing recovery now supports retiring a lost device with the shop administrator and reconciling newer verified backups. Nonblank UPI references are checked across the shop. Large Android backups can be compressed and restored in 1.3.7. The dashboard and invoice preview load faster with large histories.
+
+The Aai Alignment rehearsal checked on-device billing, an external backup restored into a fresh device, and switching billing devices against an isolated hosted project.
+
+`SHA-256` 55341b0f11a58d161d17c9d0218ba34f7d9abe35eb317b8c321ce82ba9a981bc
+
 # TyreDesk 1.3.6
 
 Removed the Android APK self-installer and its REQUEST_INSTALL_PACKAGES permission and FileProvider. TyreDesk still checks for new versions and shows Update Available. The update button now opens the official HTTPS download page in a browser; install the signed APK over the existing app without uninstalling. Daily backups, thermal receipt printing, offline storage, invoices and Supabase synchronization remain. Updated the offline service worker cache and corrected mobile update-button layout.
