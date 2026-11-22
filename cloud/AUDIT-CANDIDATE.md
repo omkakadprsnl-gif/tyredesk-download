@@ -36,9 +36,9 @@ node tests/audit-load.mjs
 
 ## Billing device handover
 
-Each linked shop has one device that can issue invoices and make business changes. Other devices can read synchronized records. The owner starts billing while connected. The issuing device keeps access when the connection drops.
+Each linked shop has one device that can issue invoices and make business changes. Other devices can read synchronized records. Opening the app while connected automatically checks for available billing access. The issuing device keeps access when the connection drops.
 
-To switch, save any draft with a confirmed payment, reconnect, and select **Finish and switch**. TyreDesk freezes new writes on that device, uploads its saved changes, and releases billing. On the other device, select **Start billing** to bring its records up to date and claim access. After an interrupted handover, use **Retry handover** on the original device. The grant stays in effect until the server releases it.
+Close or background the app while it is connected to switch devices. TyreDesk freezes new writes on that device, uploads its saved changes, and releases billing. The next device loads the latest records and opens billing automatically. Save any invoice with a confirmed draft payment before closing. A device that was offline or whose process was killed before the release can retain access. Reopen it online to finish syncing and close it again. The grant stays in effect until the server releases it.
 
 Back up and sync all devices before rollout. Install the matching app on every issuing device and close older app copies at cutover. Apply the billing handover migration after the restricted-business-tables migration. Earlier app versions can still create local invoices and their writes will be rejected by the migrated cloud. Validate the matching clients with a disposable hosted Supabase project and check the installed Android upgrade before changing any live project.
 

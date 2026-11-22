@@ -52,7 +52,7 @@ export function getDatabase(){
 function requireBillingAccess(device,binding){
   if(device?.billing?.phase==='switching')throw Error('Billing is switching devices. Finish the handover before making changes.');
   if((device||binding)&&device?.billing?.phase!=='active')
-    throw Error('This device is view-only. Choose Start billing to make changes.');
+    throw Error('This device is view-only. Billing opens automatically when it is connected and access is available.');
 }
 export async function transact(storeNames,mode,fn){
   const db=await getDatabase();
@@ -443,7 +443,7 @@ export async function restoreBackup(json,{disconnectCloud=false}={}){
     const state=tx.objectStore('cloudState');
     const device=await request(state.get('device'));
     const current=device||await request(state.get('backupBinding'));
-    if(device?.billing)throw Error('Finish and switch billing before restoring a backup.');
+    if(device?.billing)throw Error('Billing must be released before restoring a backup.');
     if(device&&((device.revision>=0&&device.generation!==device.cleanGeneration)||await request(state.get('pending'))))
       throw Error('Sync this device’s saved changes before restoring a backup.');
     if(device&&!disconnectCloud)throw Error('Confirm restoring this device as an offline copy first.');

@@ -9,16 +9,21 @@ grant update(billing_device,billing_token) on tyredesk.shop to tyredesk_rpc;
 alter function tyredesk.tyredesk_commit(bigint,jsonb,uuid,uuid) rename to commit_with_receipt;
 revoke all on function tyredesk.commit_with_receipt(bigint,jsonb,uuid,uuid) from public, anon, authenticated;
 
--- The pre-handover endpoint may initialize an empty shop only.
+-- The pre-handover endpoint may initialize an empty shop and its service list only.
 create function tyredesk.tyredesk_commit(expected_revision bigint, changes jsonb, device_token uuid, write_token uuid)
 returns bigint language plpgsql security definer set search_path='' as $$
 declare current_revision bigint;
 begin
   select revision into strict current_revision from tyredesk.shop for update;
   if current_revision <> 0 or not coalesce(
-    jsonb_array_length(changes)=1 and changes->0->>'kind'='settings' and changes->0->>'key'='shop'
+    jsonb_array_length(changes) between 1 and 51 and changes->0->>'kind'='settings' and changes->0->>'key'='shop'
     and jsonb_typeof(changes->0->'doc')='object' and changes->0->'doc'->>'id'='shop',false
-  ) then raise exception 'Update TyreDesk and start billing on this device'; end if;
+  ) or exists (
+    select 1 from jsonb_array_elements(changes) with ordinality as item(entry,position)
+    where position>1 and not coalesce(
+      entry->>'kind'='catalog' and entry->'doc'->>'type'='service'
+      and entry->'doc'->'trackStock'='false'::jsonb and entry->'doc'->'stockQty'='0'::jsonb,false)
+  ) then raise exception 'Update TyreDesk and open billing on this device'; end if;
   return tyredesk.commit_with_receipt(expected_revision,changes,device_token,write_token);
 end $$;
 

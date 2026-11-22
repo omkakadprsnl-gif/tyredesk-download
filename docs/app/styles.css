@@ -566,3 +566,15 @@ body[data-theme='dark']{--bg:#161b19;--panel:#222a26;--surface:#2d3631;--ink:#e8
 .billing-access[hidden], [data-billing-editor][hidden] {
   display: none;
 }
+
+.setup-services { margin: 1rem 0; }
+.setup-service { margin-bottom: .75rem; }
+.settings-services { padding: 0; list-style: none; }
+.settings-services li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: .5rem;
+  margin: .5rem 0;
+}

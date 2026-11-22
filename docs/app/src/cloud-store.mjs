@@ -9,7 +9,9 @@ export async function setBillingState(billing,{requireSavedDraft=false}={}){
     if(!device)throw Error('Sign in to the shop before starting billing.');
     if(requireSavedDraft&&await receivedDraft(tx))
       throw Error('Save the invoice with the confirmed payment before switching devices.');
-    await req(state.put({...device,billing}));
+    const next={...device,billing};
+    await req(state.put(next));
+    return next;
   });
 }
 export async function bindCloud(project,user,series,pin){

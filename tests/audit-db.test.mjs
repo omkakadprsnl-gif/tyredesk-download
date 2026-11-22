@@ -48,7 +48,12 @@ try{
   const profile=profileOf(i);
   const mode=profile.doc.inventoryMode;
   const tyre={kind:'catalog',key:'tyre-1',doc:{id:'tyre-1',type:'tyre',brand:'MRF',...(i?{model:'Test',size:'165/80 R14'}:{}),inventoryMode:mode,tyreIdentity:i?'["mrf","test","165/80r14"]':'["mrf"]',stockQty:5}};
-  if(i===0)assert.equal((await shop.oldCommit(0,[profile])).rows[0].result,1);
+  if(i===0){
+   await assert.rejects(shop.oldCommit(0,[profile,tyre]),/Update TyreDesk/);
+   const service={kind:'catalog',key:'alignment',doc:{id:'alignment',type:'service',name:'Wheel alignment',trackStock:false,stockQty:0,pricePaise:65000}};
+   assert.equal((await shop.oldCommit(0,[profile,service])).rows[0].result,1);
+   assert.equal((await shop.db.query("select doc->>'name' as name from public.tyredesk_page(0,'','') where key='alignment'")).rows[0].name,'Wheel alignment');
+  }
   else await assert.rejects(shop.oldCommit(1,[profile]),/Update TyreDesk/);
   await assert.rejects(shop.oldCommit(1,[tyre],newWrite),/Update TyreDesk/);
   await assert.rejects(shop.commit(1,[tyre]),/does not hold billing access/);

@@ -40,7 +40,8 @@ export function mockShopAccount({ref='aaaaaaaaaaaaaaaaaaaa',alias='fixture',owne
     return send('released');
   }
   if(endpoint==='tyredesk_commit'||endpoint==='tyredesk_billing_commit'){
-    if(endpoint==='tyredesk_commit'&&(revision!==0||b.changes.length!==1||b.changes[0].kind!=='settings'))
+    if(endpoint==='tyredesk_commit'&&(revision!==0||b.changes[0].kind!=='settings'||
+      b.changes.slice(1).some(row=>row.kind!=='catalog'||row.doc?.type!=='service'||row.doc.trackStock!==false)))
       return send({message:'Update TyreDesk and start billing on this device'},400);
     if(endpoint==='tyredesk_billing_commit'&&!owns)return send({message:'This device does not hold billing access'},400);
     if(receipts.has(b.write_token))return send(receipts.get(b.write_token));

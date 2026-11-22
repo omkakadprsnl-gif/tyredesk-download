@@ -3,6 +3,7 @@ import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs/promises';
+import {setTimeout as delay} from 'node:timers/promises';
 const root=new URL('../docs/app/',import.meta.url);
 const server=http.createServer(async(req,res)=>{
  try{const name=req.url==='/'?'index.html':req.url.slice(1);
@@ -62,8 +63,7 @@ try{
  await a.context().setOffline(false);
  await tab.goto(url);await tab.waitForSelector('#cloud-form, #unlock-form, .shell');
  const saved=await a.evaluate(async()=>(await import('./src/db.mjs')).exportBackup());
- await assert.rejects(a.evaluate(async backup=>(await import('./src/db.mjs')).restoreBackup(backup,{disconnectCloud:true}),saved),/Finish and switch/);
- await assert.rejects(handover(a,'logoutCloud'),/Finish and switch/);
+ await assert.rejects(a.evaluate(async backup=>(await import('./src/db.mjs')).restoreBackup(backup,{disconnectCloud:true}),saved),/Billing must be released/);
  const expense=page=>page.evaluate(async()=>(await import('./src/db.mjs')).addExpense({amountPaise:300,description:'Offline expense'}));
  control.paused=true;
  await expense(a);assert.match(await sync(a),/paused/i);
@@ -94,6 +94,7 @@ try{
  await fresh.reload();await fresh.waitForSelector('.shell');assert.equal(await fresh.locator('#cloud-form,#setup-form').count(),0);
  await fresh.getByText('Billing is open on another device.',{exact:false}).waitFor();
  assert.equal(recovered.orders.length,2);assert.equal(recovered.reminders.length,0);assert.equal(recovered.payments.length,1);assert.equal(recovered.expenses.length,1);
+ await fresh.close();
  const secondShop=mockShopAccount({ref:'bbbbbbbbbbbbbbbbbbbb',alias:'second',owner:'second-owner'});
  const secondContext=await browser.newContext({serviceWorkers:'block'});
  await secondShop.attach(secondContext);
@@ -119,5 +120,22 @@ try{
  await Promise.all([handover(a,'startBilling'),handover(b,'startBilling')]);
  const competingWrites=await Promise.allSettled([expense(a),expense(b)]);
  assert.equal(competingWrites.filter(result=>result.status==='fulfilled').length,1);
+ const owner=competingWrites[0].status==='fulfilled'?a:b;
+ const next=owner===a?b:a;
+ async function foreground(page){
+  await page.evaluate(async()=>{
+   Object.defineProperty(document,'hidden',{configurable:true,value:false});
+   (await import('./src/cloud.mjs')).startCloud(()=>true);
+  });
+  await page.waitForFunction(async()=>(await navigator.locks.query()).held.some(lock=>lock.name==='tyredesk-foreground'));
+ }
+ await foreground(owner);await foreground(next);
+ await owner.evaluate(()=>window.dispatchEvent(new CustomEvent('tyredesk-native-foreground',{detail:false})));
+ const phase=page=>page.evaluate(async()=>(await (await import('./src/cloud-store.mjs')).localCloud())?.billing?.phase);
+ for(let attempt=0;attempt<100&&(await phase(next)!=='active'||await phase(owner));attempt++)await delay(100);
+ assert.equal(await phase(next),'active');
+ assert.equal(await phase(owner),undefined);
+ await assert.rejects(expense(owner),/view-only/);
+ assert.equal((await data(next)).expenses.length,2);
  console.log('PASS: two billing devices, offline exclusivity, last-tyre protection, release and claim retries, paused service, duplicate payment prevention and shop recovery');
 }finally{await browser.close();await new Promise(r=>server.close(r));}
