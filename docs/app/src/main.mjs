@@ -460,6 +460,8 @@ function showPriceModal(p=null){
   <label class="field">Selling price (₹)<input name="price" type="number" min="0" step="0.01" required value="${amountField(p?.pricePaise)}"></label>
   <label class="field">GST (%)<input name="taxRate" type="number" min="0" max="100" step="0.01" value="${p?.taxBps?p.taxBps/100:0}"></label>
   ${tyre?categoryFields(productCategory(state.data.settings,p),p):''}
+  ${tyre&&stockKeyFields(state.data.settings).length&&!isVariantTyre(p)?'<p class="small-muted field-spread">This is existing unclassified tyre stock. Enter all stock-identifying fields to classify it without changing its historical ID.</p>':''}
+  ${tyre&&isVariantTyre(p)?'<p class="small-muted field-spread">Stock identity is locked for this variant. To change it, create a different tyre entry and reconcile stock deliberately.</p>':''}
   ${tyre?`<label class="field">Low stock warning at<input name="lowStockAt" type="number" min="0" step="1" value="${p.lowStockAt??5}"></label>`:
     `<label class="field-spread consent"><input type="checkbox" name="activeService" ${p?.isActive===false?'':'checked'}> Show this service on new invoices</label>`}
  </div></form>`;
@@ -568,9 +570,10 @@ async function doAction(action,target){switch(action){
  case 'edit-stock-product':showCustomProductModal(shopCategories().find(c=>c.id===target.dataset.category),customProducts().find(p=>p.id===target.dataset.product));return;
  case 'buy-tyres':showStockModal(null,'purchase');return;
  case 'export-inventory':{
-   const mode=shopMode(),details=mode!=='simple';
-   const rows=activeTyres().map(p=>[p.brand||p.name,...(details?[p.model,p.size]:[]),p.stockQty||0,fromPaise(p.costPaise),fromPaise(p.pricePaise)]);
-   saveBlob(toCSV(['Brand',...(details?['Model','Size']:[]),'Current stock','Cost INR','Price INR'],rows),`TyreDesk-inventory-${todayISO()}.csv`,'text/csv;charset=utf-8');return;
+   const mode=shopMode(),details=mode!=='simple',fields=tyreFields(state.data.settings);
+   const rows=activeTyres().map(p=>[p.brand||p.name,...(details?[p.model,p.size]:[]),
+     ...fields.map(field=>p.attributes?.[field.id]||''),p.stockQty||0,fromPaise(p.costPaise),fromPaise(p.pricePaise)]);
+   saveBlob(toCSV(['Brand',...(details?['Model','Size']:[]),...fields.map(f=>f.label),'Current stock','Cost INR','Price INR'],rows),`TyreDesk-inventory-${todayISO()}.csv`,'text/csv;charset=utf-8');return;
  }
  case 'add-expense':showExpenseModal();return;
  case 'clear-customer':delete state.bill.selectedCustomer;state.bill.selectedCustomerId=null;state.bill.customerQuery='';state.bill.customerName='';state.bill.customerPhone='';render();return;
