@@ -7,7 +7,10 @@ import {reconcile,changes,rowKey,cloudRecord,SyncConflict} from './cloud-merge.m
 const defaultProject={ref:'yaztgggiaraghfkcllzh',key:'sb_publishable_T6oFj9KLmXeejZO0RyTuqw_dPnHEnkD'};
 const projectsByUsername={aai:defaultProject};
 const preference='tyredesk-cloud-project';
-const selected=()=>JSON.parse(localStorage.getItem(preference)||'null')||defaultProject;
+const selected=()=>{
+  try{return JSON.parse(localStorage.getItem(preference)||'null')||defaultProject;}
+  catch{return defaultProject;}
+};
 let client=null, running=null, message='Sign in to sync this shop across devices.', blocked=false, timer, databaseBytes;
 const notify=()=>window.dispatchEvent(new Event('tyredesk-cloud-status'));
 function status(value){message=value;notify();}
@@ -23,6 +26,9 @@ async function rpc(action,body={}){
   if(error)throw error;
   if(!data.session)throw Error('Sign in to resume cloud sync. This device keeps your local records.');
   const {key,ref}=selected();
+  const device=await localCloud();
+  if(device&&(device.project!==ref||device.user!==data.session.user.id))
+    throw new SyncConflict('The signed-in account does not match this device’s shop.');
   const res=await fetch('https://'+ref+'.supabase.co/rest/v1/rpc/tyredesk_'+action,{method:'POST',headers:{apikey:key,Authorization:'Bearer '+data.session.access_token,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
   if(!res.ok){
     const raw=await res.text();
@@ -35,20 +41,44 @@ async function rpc(action,body={}){
   return res.json();
 }
 export async function loginCloud({username,password,pin,onboarding=false}){
-  const existing=await localCloud();
-  const target=existing?selected():(Object.hasOwn(projectsByUsername,username.toLowerCase())?projectsByUsername[username.toLowerCase()]:defaultProject);
-  if(!/^[a-z0-9]{20}$/.test(target.ref)||!/^sb_publishable_[A-Za-z0-9_-]+$/.test(target.key))throw Error('Enter the shop project reference and publishable key.');
   if(!/^[a-z0-9._-]{1,60}$/i.test(username))throw Error('Enter your shop username.');
-  if(client&&target.ref!==selected().ref){await client.dispose();client=null;}
-  localStorage.setItem(preference,JSON.stringify(target));
-  const {data,error}=await setupClient().signInWithPassword({email:username.toLowerCase()+'@shop.tyredesk.invalid',password});
-  if(error)throw error;
-  await rpc('head');
-  let token=localStorage.getItem('tyredesk-device-uuid');
-  if(!token){token=crypto.randomUUID();localStorage.setItem('tyredesk-device-uuid',token);}
-  const series=await rpc('device',{token});
-  await bindCloud(target.ref,data.user.id,series,pin);
-  blocked=false;if(!onboarding)await syncCloud();
+  const alias=username.toLowerCase();
+  const login=async()=>{
+    const existing=await localCloud();
+    const backup=await get('cloudState','backupBinding');
+    let target=selected();
+    if(!existing){
+      if(Object.hasOwn(projectsByUsername,alias))target=projectsByUsername[alias];
+      else{
+        const response=await fetch('https://omkakadprsnl-gif.github.io/tyredesk-download/shop-directory.json',{cache:'no-store',signal:AbortSignal.timeout(10000)});
+        if(!response.ok)throw Error('Shop sign-in is temporarily unavailable.');
+        const directory=await response.json();
+        if(!Object.hasOwn(directory,alias))throw Error('This shop username is not registered.');
+        target=directory[alias];
+      }
+    }
+    if(!/^[a-z0-9]{20}$/.test(target?.ref)||!/^sb_publishable_[A-Za-z0-9_-]+$/.test(target?.key)||
+       (existing&&existing.project!==target.ref))throw Error('This device’s shop connection needs support.');
+    if(backup&&backup.project!==target.ref)throw Error('This backup belongs to a different shop.');
+    if(client&&target.ref!==selected().ref){await client.dispose();client=null;}
+    localStorage.setItem(preference,JSON.stringify(target));
+    const auth=setupClient();
+    const {data,error}=await auth.signInWithPassword({email:alias+'@shop.tyredesk.invalid',password});
+    if(error)throw error;
+    try{
+      if(existing&&data.user.id!==existing.user)throw Error('This device is already linked to another shop.');
+      if(backup&&data.user.id!==backup.user)throw Error('This backup belongs to a different shop.');
+      await rpc('head');
+      let token=localStorage.getItem('tyredesk-device-uuid');
+      if(!token){token=crypto.randomUUID();localStorage.setItem('tyredesk-device-uuid',token);}
+      const series=await rpc('device',{token});
+      await bindCloud(target.ref,data.user.id,series,pin);
+    }catch(err){await auth.signOut({scope:'local'});throw err;}
+    blocked=false;
+  };
+  if(navigator.locks)await navigator.locks.request('tyredesk-sync',login);
+  else {if(running)await running;await login();}
+  if(!onboarding)await syncCloud();
 }
 // Read the owner-protected profile before offering setup. A failed read must
 // never be interpreted as an empty shop.
@@ -147,6 +177,9 @@ async function cycle(useCloud=false){
     const remote=await remoteView(snap.base,snap.device.revision,head);
     if(!remote)continue;
     const k=rowKey('settings','shop'),l=snap.local.get(k),r=remote.get(k);
+    const backup=await get('cloudState','backupBinding');
+    if(!useCloud&&snap.device.revision<0&&l&&!r&&(!backup||backup.project!==snap.device.project||backup.user!==snap.device.user))
+      throw new SyncConflict('This device has business records and the cloud shop is empty. Contact support to verify the recovery source.');
     if(!useCloud&&snap.device.revision<0&&l&&r&&l.createdAt!==r.createdAt)
       throw new SyncConflict('This device and the cloud contain different shop setups. Export this device before choosing the cloud shop.');
     if(!useCloud&&snap.device.revision<0&&l&&r&&changes(remote,snap.local).length)

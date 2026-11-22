@@ -28,6 +28,7 @@ try{
  const ids=await a.evaluate(async()=>{
   const d=await import('./src/db.mjs');
   await d.saveSetting({name:'Fixture',owner:'Owner',createdAt:'2026-01-01',language:'en',pinHash:'local',pinSalt:'00',paymentQrData:'data:image/png;base64,AA=='});
+  await d.put('cloudState',{id:'backupBinding',project:'aaaaaaaaaaaaaaaaaaaa',user:'test-owner'});
   const p=await d.addCatalogItem({name:'Fixture tyre',type:'tyre',openingStockQty:6});
   const r=await d.saveReminder({title:'Call supplier',dueAt:'2026-01-01T00:00:00.000Z'});return {p:p.id,r:r.id};
  });
@@ -53,5 +54,42 @@ try{
  await fresh.locator('#device-pin-form button').click();await fresh.waitForSelector('.shell');const recovered=await data(fresh);
  await fresh.reload();await fresh.waitForSelector('.shell');assert.equal(await fresh.locator('#cloud-form,#setup-form').count(),0);
  assert.equal(recovered.orders.length,2);assert.equal(recovered.reminders.length,0);assert.equal(recovered.payments.length,1);assert.equal(recovered.expenses.length,1);
+ const secondShop=mockShopAccount({ref:'bbbbbbbbbbbbbbbbbbbb',alias:'second',owner:'second-owner'});
+ const secondContext=await browser.newContext({serviceWorkers:'block'});
+ await secondShop.attach(secondContext);
+ const second=await secondContext.newPage();await second.goto(url);
+ const sourceBackup=await a.evaluate(async()=>(await import('./src/db.mjs')).exportBackup());
+ await second.evaluate(async backup=>(await import('./src/db.mjs')).restoreBackup(backup),sourceBackup);
+ await assert.rejects(second.evaluate(async()=>(await import('./src/cloud.mjs')).loginCloud({username:'second',password:'fixture-only'})),/different shop/);
+ assert.equal(secondShop.records.size,0);
+ const clean=await secondContext.newPage();
+ // A separate storage context can provision the intended shop from the directory.
+ const thirdContext=await browser.newContext({serviceWorkers:'block'});
+ await secondShop.attach(thirdContext);
+ const third=await thirdContext.newPage();await third.goto(url);
+ await third.evaluate(async()=>{
+  const c=await import('./src/cloud.mjs');
+  await c.loginCloud({username:'second',password:'fixture-only',onboarding:true});
+  await c.finishFirstSetup({id:'shop',name:'Independent second shop',createdAt:'2026-11-22',
+    pinHash:'local',pinSalt:'00',inventoryMode:'simple'});
+ });
+ assert.equal((await data(third)).orders.length,0);
+ assert.equal(secondShop.records.get('settings/shop').doc.name,'Independent second shop');
+ assert.equal(records.get('settings/shop').doc.name,'Fixture');
+ await clean.close();
+ // Release blocker reproduced on disposable devices. Each device already issued
+ // a local invoice. The cloud rejects the losing sale instead of making stock negative.
+ await a.evaluate(async id=>(await import('./src/db.mjs')).adjustStock(id,-3,'Last-tyre fixture'),ids.p);
+ await sync(a);await sync(b);
+ await b.context().setOffline(true);
+ const accepted=await bill(a,'Last available tyre A');
+ const laterConflict=await bill(b,'Last available tyre B');
+ assert.notEqual(accepted.id,laterConflict.id);
+ await sync(a);await b.context().setOffline(false);
+ assert.match(await sync(b),/remaining stock/);
+ assert.equal(records.get('catalog/'+ids.p).doc.stockQty,0);
+ assert.ok((await data(b)).orders.some(o=>o.id===laterConflict.id));
+ assert.equal(records.has('orders/'+laterConflict.id),false);
+ console.log('RELEASE BLOCKER REPRODUCED: simultaneous local invoices for the final tyre, one rejected at sync');
  console.log('PASS: independent devices, offline bills, stock, retried payment, reminder deletion, paused service, persistent login and recovery');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

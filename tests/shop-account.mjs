@@ -1,16 +1,19 @@
-export function mockShopAccount(){
+export function mockShopAccount({ref='aaaaaaaaaaaaaaaaaaaa',alias='fixture',owner='test-owner'}={}){
  const records=new Map(),devices=new Map(),receipts=new Map();
  let revision=0,lastDelete=0;
  const control={paused:false,loseAck:false};
  async function attach(ctx){
- await ctx.route('https://*.supabase.co/**',async route=>{
+ await ctx.route('https://omkakadprsnl-gif.github.io/tyredesk-download/shop-directory.json',route=>
+  route.fulfill({json:{[alias]:{ref,key:'sb_publishable_fixture'}},headers:{'access-control-allow-origin':'*'}}));
+ await ctx.route('https://'+ref+'.supabase.co/**',async route=>{
   const req=route.request(),endpoint=new URL(req.url()).pathname.split('/').at(-1);
   const send=(data,status=200)=>route.fulfill({status,json:data,headers:{'access-control-allow-origin':'*'}});
   if(control.paused||(control.failRead&&endpoint==='tyredesk_page'))return send({message:'Project is paused'},540);
   if(endpoint==='token'){
+    if(req.postDataJSON()?.email!==alias+'@shop.tyredesk.invalid')return send({message:'Invalid credentials'},400);
     const b64=obj=>Buffer.from(JSON.stringify(obj)).toString('base64url');
     const exp=Math.floor(Date.now()/1000)+3600;
-    return send({access_token:b64({alg:'HS256'})+'.'+b64({sub:'test-owner',exp})+'.c2ln',refresh_token:'fixture',token_type:'bearer',expires_in:3600,expires_at:exp,user:{id:'test-owner',email:'test@example.invalid'}});
+    return send({access_token:b64({alg:'HS256'})+'.'+b64({sub:owner,exp})+'.c2ln',refresh_token:'fixture',token_type:'bearer',expires_in:3600,expires_at:exp,user:{id:owner,email:alias+'@shop.tyredesk.invalid'}});
   }
   const b=req.postDataJSON()||{};
   if(endpoint==='tyredesk_device'){if(!devices.has(b.token))devices.set(b.token,devices.size+1);return send(devices.get(b.token));}

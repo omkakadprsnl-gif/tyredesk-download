@@ -43,6 +43,7 @@ export function calculateBill(items, orderDiscount={type:'fixed',value:0}, optio
     return { ...src, qty, unitPaise:rate, discount, taxBps, gross, itemDiscountPaise:amount, afterItemDiscount: gross-amount };
   });
   const beforeOrderDiscount = normalized.reduce((n, v) => n + v.afterItemDiscount,0);
+  assertMoney(beforeOrderDiscount,'Subtotal after line discounts');
   let totalOrderDiscount=0;
   if (orderDiscount.type === 'percent') {
     const bps = Number(orderDiscount.value || 0);
@@ -53,13 +54,20 @@ export function calculateBill(items, orderDiscount={type:'fixed',value:0}, optio
     assertMoney(totalOrderDiscount,'Bill discount');
   }
   if (totalOrderDiscount > beforeOrderDiscount) throw new Error('Bill discount exceeds the bill amount');
-  let allocated = 0;
+  const shares = normalized.map(() => 0);
+  if (totalOrderDiscount > 0) {
+    const denominator = BigInt(beforeOrderDiscount);
+    const remainders = normalized.map((line, index) => {
+      const product = BigInt(totalOrderDiscount) * BigInt(line.afterItemDiscount);
+      shares[index] = Number(product / denominator);
+      return {index, remainder: Number(product % denominator)};
+    });
+    const remaining = totalOrderDiscount - shares.reduce((sum, share) => sum + share, 0);
+    remainders.sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+    for (const {index} of remainders.slice(0, remaining)) shares[index]++;
+  }
   const lines = normalized.map((line, i) => {
-    let share = 0;
-    if (beforeOrderDiscount > 0) {
-      share = i === normalized.length-1 ? totalOrderDiscount-allocated : Math.floor(totalOrderDiscount * line.afterItemDiscount / beforeOrderDiscount);
-    }
-    allocated += share;
+    const share = shares[i];
     const taxablePaise = line.afterItemDiscount-share;
     const taxPaise = options.registered ? Math.round(taxablePaise * line.taxBps / 10000) : 0;
     const cgstPaise = options.registered && options.supplyMode !== 'inter' ? Math.floor(taxPaise/2) : 0;

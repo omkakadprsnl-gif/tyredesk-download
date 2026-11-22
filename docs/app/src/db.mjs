@@ -4,6 +4,7 @@ import {uid, normalizePhone, normalizeVehicle, safeText, calculateBill, calculat
 
 const DB_NAME='tyreflow-offline-v1';
 const DB_VERSION=6;
+const DRAFT_KEYS=()=>IDBKeyRange.bound('draft-','draft-\uffff');
 export const STORES = ['settings','customers','vehicles','catalog','orders','payments','expenses','audit','meta','inventoryMovements','purchases','reminders'];
 let dbPromise;
 const request = req => new Promise((resolve,reject) => { req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); });
@@ -69,14 +70,19 @@ export async function addAudit(action,detail='') {return put('audit',{id:uid(),c
 export async function searchCustomers(term,limit=20){
   const q=String(term||'').trim().toLowerCase();if(!q)return [];
   const phone=normalizePhone(q), vehicle=normalizeVehicle(q);
-  const db=await getDatabase();
-  let customers=[];
-  if(phone.length>=3){customers=await transact(['customers'],'readonly',tx=>request(tx.objectStore('customers').index('phoneNorm').getAll(IDBKeyRange.bound(phone,phone+'\uffff'),limit)));}
-  if(q.length>=2){const names=await transact(['customers'],'readonly',tx=>request(tx.objectStore('customers').index('searchName').getAll(IDBKeyRange.bound(q,q+'\uffff'),limit))); customers.push(...names);}
-  if(vehicle.length>=3){const vehicleMatches=await transact(['vehicles'],'readonly',tx=>request(tx.objectStore('vehicles').index('regNorm').getAll(IDBKeyRange.bound(vehicle,vehicle+'\uffff'),limit))); const vCustomers=await Promise.all(vehicleMatches.map(v=>get('customers',v.customerId)));customers.push(...vCustomers.filter(Boolean));}
-  const found=[...new Map(customers.map(c=>[c.id,c])).values()].slice(0,limit);
-  const veh=await all('vehicles');
-  return found.map(c=>({...c,vehicles:veh.filter(v=>v.customerId===c.id)}));
+  return transact(['customers','vehicles'],'readonly',async tx=>{
+    const rows=tx.objectStore('customers'), vehicles=tx.objectStore('vehicles');
+    const prefix=(index,value)=>request(index.getAll(IDBKeyRange.bound(value,value+'\uffff'),limit));
+    const [phones,names,registrations]=await Promise.all([
+      phone.length>=3?prefix(rows.index('phoneNorm'),phone):[],
+      q.length>=2?prefix(rows.index('searchName'),q):[],
+      vehicle.length>=3?prefix(vehicles.index('regNorm'),vehicle):[]
+    ]);
+    const linked=await Promise.all(registrations.map(v=>request(rows.get(v.customerId))));
+    const found=[...new Map([...phones,...names,...linked.filter(Boolean)].map(c=>[c.id,c])).values()].slice(0,limit);
+    const byCustomer=vehicles.index('customerId');
+    return Promise.all(found.map(async c=>({...c,vehicles:await request(byCustomer.getAll(c.id))})));
+  });
 }
 export async function upsertCustomer(payload){
   const id=payload.id||uid();const now=new Date().toISOString();
@@ -271,11 +277,16 @@ export async function completeOrder(input){
       stockLines.push({productId,qty,unitCostPaise:p.costPaise||0,productName:p.name,balanceAfter:p.stockQty});
     }
     for(const l of calculated.lines){const st=stockLines.find(x=>x.productId===l.catalogId);if(st)l.unitCostPaise=st.unitCostPaise;}
-    const meta=tx.objectStore('meta');const yy=new Date().getFullYear();const seqId=`invoice-${yy}`;const seq=(await request(meta.get(seqId)))?.value||0;const newSeq=seq+1;
-    await request(meta.put({id:seqId,value:newSeq}));
+    const meta=tx.objectStore('meta');const yy=new Date().getFullYear();const seqId=`invoice-${yy}`;const seq=(await request(meta.get(seqId)))?.value||0;let newSeq=seq;
     const invoicePrefix=safeText(settings.invoicePrefix||'INV').replace(/\s/g,'').toUpperCase().slice(0,12)||'INV';
     const device=await request(tx.objectStore('cloudState').get('device'));
-    const number=device?.series?`${invoicePrefix.slice(0,3)}/${String(yy).slice(-2)}${device.series.toString(36).toUpperCase()}/${String(newSeq).padStart(5,'0')}`:`${invoicePrefix}-${yy}-${String(newSeq).padStart(5,'0')}`;
+    let number;
+    do {
+      newSeq++;
+      if(!Number.isSafeInteger(newSeq))throw Error('Invoice series exhausted. Contact support.');
+      number=device?.series?`${invoicePrefix.slice(0,3)}/${String(yy).slice(-2)}${device.series.toString(36).toUpperCase()}/${String(newSeq).padStart(5,'0')}`:`${invoicePrefix}-${yy}-${String(newSeq).padStart(5,'0')}`;
+    } while(await request(orders.index('number').getKey(number)));
+    await request(meta.put({id:seqId,value:newSeq}));
     const order={id:orderId,requestId,number,createdAt:now,date:todayISO(),customerId:customer.id,customerSnapshot:{name:customer.name,phone:customer.phone},vehicle,items:calculated.lines,totals:calculated.totals,orderDiscount:input.orderDiscount||{type:'fixed',value:0},supplyMode:input.supplyMode||'intra',paymentMethod:input.paymentMethod||'cash',paymentReference:safeText(input.paymentReference),notes:safeText(input.notes),status:'completed',shopSnapshot:{name:settings.name,owner:settings.owner,phone:settings.phone,whatsapp:settings.whatsapp,address:settings.address,city:settings.city,state:settings.state,gstin:settings.gstin,invoicePrefix,logoData:settings.logoData||'',gstRegistered:settings.gstRegistered,terms:settings.terms||'',language:settings.language||'en'}};
     await request(orders.add(order));
     for(const stock of stockLines){await request(tx.objectStore('inventoryMovements').add({id:uid(),productId:stock.productId,productName:stock.productName,delta:-stock.qty,balanceAfter:stock.balanceAfter,type:'sale',reference:orderId,note:number,createdAt:now}));}
@@ -364,7 +375,9 @@ export async function completeReminder(id){
   return item;
 }
 export async function summaryData(){
-  const [settings,customers,vehicles,catalog,orders,payments,expenses,audit,inventoryMovements,purchases,reminders]=await Promise.all([getSetting(),all('customers'),all('vehicles'),all('catalog'),all('orders'),all('payments'),all('expenses'),all('audit'),all('inventoryMovements'),all('purchases'),all('reminders')]);
+  const stores=['settings','customers','vehicles','catalog','orders','payments','expenses','audit','inventoryMovements','purchases','reminders'];
+  const [[settings],customers,vehicles,catalog,orders,payments,expenses,audit,inventoryMovements,purchases,reminders]=
+    await transact(stores,'readonly',tx=>Promise.all(stores.map(store=>request(tx.objectStore(store).getAll()))));
   const paymentsByOrder=new Map();for(const p of payments){if(!paymentsByOrder.has(p.orderId))paymentsByOrder.set(p.orderId,[]);paymentsByOrder.get(p.orderId).push(p);}
   const enriched=orders.map(o=>({...o,...calculateDue(o,paymentsByOrder.get(o.id)||[])}));
   return {settings,customers,vehicles,catalog,orders:enriched,payments,expenses,audit,inventoryMovements,purchases,reminders};
@@ -373,7 +386,16 @@ const canonical = v => JSON.stringify(v);
 const digest = async text => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))).map(x=>x.toString(16).padStart(2,'0')).join('');
 export async function exportBackup(){
   const payload={schemaVersion:DB_VERSION,app:'TyreDesk',exportedAt:new Date().toISOString(),data:{}};
-  for(const store of STORES)payload.data[store]=await all(store);
+  await transact([...STORES,'cloudState'],'readonly',async tx=>{
+    const reads=STORES.map(store=>request(tx.objectStore(store).getAll()));
+    const cloud=tx.objectStore('cloudState');
+    const [rows,drafts,bound,previous]=await Promise.all([Promise.all(reads),request(cloud.getAll(DRAFT_KEYS())),
+      request(cloud.get('device')),request(cloud.get('backupBinding'))]);
+    const binding=bound||previous;
+    if(binding)payload.shopBinding={project:binding.project,user:binding.user};
+    for(const [index,store] of STORES.entries())payload.data[store]=rows[index];
+    if(drafts.length)payload.drafts=drafts;
+  });
   const checksum=await digest(canonical(payload));
   return JSON.stringify({payload,checksum},null,2);
 }
@@ -391,15 +413,37 @@ export async function restoreBackup(json,{disconnectCloud=false}={}){
   if(Array.isArray(data.catalog))data.catalog=data.catalog.map(item=>item.type==='tyre'
     ? {...item,trackStock:true,stockQty:Number.isSafeInteger(item.stockQty)&&item.stockQty>=0?item.stockQty:0}
     : {...item,trackStock:false});
-  for(const store of STORES){if(!Array.isArray(data?.[store])||data[store].some(record=>!record||typeof record.id!=='string'))throw Error(`Invalid backup table: ${store}`);}
+  for(const store of STORES){
+    const rows=data[store];
+    if(!Array.isArray(rows)||rows.some(record=>!record||typeof record.id!=='string'||!record.id)||
+       new Set(rows.map(record=>record.id)).size!==rows.length)throw Error(`Invalid or duplicate backup records: ${store}`);
+  }
+  const binding=wrapper.payload.shopBinding;
+  if(binding!==undefined&&(!binding||!/^[a-z0-9]{20}$/.test(binding.project)||typeof binding.user!=='string'||!binding.user))
+    throw Error('Invalid backup shop identity');
+  const drafts=wrapper.payload.drafts??[];
+  const invoiceRequests=new Set(data.orders.map(order=>order.requestId));
+  if(!Array.isArray(drafts)||drafts.some(d=>!d?.bill?.requestId||d.id!=='draft-'+d.bill.requestId||
+      invoiceRequests.has(d.bill.requestId)||!Array.isArray(d.bill.draftReceipts)||
+      !d.bill.draftReceipts.length||d.bill.draftReceipts.some(p=>!p?.id||!Number.isSafeInteger(p.amountPaise)||p.amountPaise<=0))||
+      new Set(drafts.map(d=>d.id)).size!==drafts.length)throw Error('Invalid confirmed payment drafts in backup');
   if(data.settings.length!==1||data.settings[0].id!=='shop')throw Error('Missing shop settings');
   // Single IndexedDB transaction. A failed restore rolls back all table changes.
   return transact([...STORES,'cloudState','cloudBase'],'readwrite',async tx=>{
-    if(await request(tx.objectStore('cloudState').get('device'))&&!disconnectCloud)throw Error('Confirm restoring this device as an offline copy first.');
-    await request(tx.objectStore('cloudState').clear());
+    const state=tx.objectStore('cloudState');
+    const device=await request(state.get('device'));
+    const current=device||await request(state.get('backupBinding'));
+    if(device&&!disconnectCloud)throw Error('Confirm restoring this device as an offline copy first.');
+    if(current&&binding&&(current.project!==binding.project||current.user!==binding.user))throw Error('This backup belongs to a different shop.');
+    const restoredDrafts=new Set(drafts.map(d=>d.id));
+    if((await request(state.getAll(DRAFT_KEYS()))).some(d=>!restoredDrafts.has(d.id)))
+      throw Error('A draft has a confirmed payment. Save its invoice before replacing device records.');
+    await request(state.clear());
+    if(binding||current){const owner=binding||current;await request(state.put({id:'backupBinding',project:owner.project,user:owner.user}));}
     await request(tx.objectStore('cloudBase').clear());
     for(const store of STORES)await request(tx.objectStore(store).clear());
-    for(const store of STORES)for(const value of data[store])await request(tx.objectStore(store).put(value));
+    for(const store of STORES)for(const value of data[store])await request(tx.objectStore(store).add(value));
+    for(const draft of drafts)await request(tx.objectStore('cloudState').add(draft));
     return Object.fromEntries(STORES.map(store=>[store,data[store].length]));
   });
 }
@@ -412,7 +456,7 @@ export async function saveReceivedDraft(bill){
 }
 export async function receivedDraft(){
   return transact(['cloudState'],'readonly',async tx=>{
-    const rows=await request(tx.objectStore('cloudState').getAll(IDBKeyRange.bound('draft-','draft-\uffff'),1));
+    const rows=await request(tx.objectStore('cloudState').getAll(DRAFT_KEYS(),1));
     return rows[0]?.bill;
   });
 }
