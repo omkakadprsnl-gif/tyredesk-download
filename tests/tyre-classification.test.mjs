@@ -64,7 +64,7 @@ await assert.rejects(saveInventoryCategory('tyres','Tyres',['Load Index','Ply Ra
   /locked after variants exist/);
 const renamed=await saveInventoryCategory('tyres','Tyres',['Speed and Load','Ply Rating'],[0]);
 assert.equal(renamed.fields[0].id,load);
-assert.equal((await all('catalog')).find(p=>p.id===p88.productId).attributes[load],' 88h ');
+assert.equal((await all('catalog')).find(p=>p.id===p88.productId).attributes[load],'88h');
 assert.equal(stockKeyFields(await getSetting()).length,1);
 await assert.rejects(addCatalogItem({...new88,attributes:{[load]:'100Z'}}),
   /Stock-identifying tyre fields cannot change/);
