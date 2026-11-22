@@ -1,3 +1,9 @@
+# TyreDesk 1.3.1
+
+Mobile sign-in uses less space. Tablet billing and payment screens keep actions within the page. Android removes older downloaded update files from its update cache on the backup schedule.
+
+APK SHA-256: `e9bae56ac8e974bd37d2bfb4a7b0e6a97151b224e8a60a43c6b687443fe11b93`
+
 # TyreDesk 1.3.0
 
 Choose Simple or Detailed Inventory during shop setup or in Settings before recording stock. New purchases automatically match stock, with each purchase recorded separately. Existing tyre entries and purchase history are preserved. Inventory mode is locked once stock records exist.
