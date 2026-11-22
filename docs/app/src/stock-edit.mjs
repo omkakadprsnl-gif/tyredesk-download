@@ -1,3 +1,4 @@
+import {compactInvoiceLines} from './invoice-storage.mjs';
 import {calculateBill,calculateDue,uid} from './logic.mjs';
 
 // Compare the same tracked quantities before and after an invoice change.
@@ -48,7 +49,7 @@ export async function prepareInvoiceEdit({tx,request,orderId,editToken,expectedE
   }
   const previous={items:prior.items,totals:prior.totals,orderDiscount:prior.orderDiscount,
     supplyMode:prior.supplyMode,notes:prior.notes,recordedAt:prior.editedAt||prior.createdAt};
-  const next={...prior,items:calculated.lines,totals:calculated.totals,orderDiscount:discount,supplyMode,notes,
+  const next={...prior,items:compactInvoiceLines(calculated.lines),totals:calculated.totals,orderDiscount:discount,supplyMode,notes,
     editToken,editedAt:timestamp,previousVersions:[...(prior.previousVersions||[]),previous]};
   await request(orders.put(next));
   return next;
