@@ -14,9 +14,11 @@ const variant=v=>JSON.stringify([...base,{load:v.toLowerCase()}]);
 const shop={id:'shop',name:'Tyre variant fixture',inventoryMode:'detailed',
  inventoryCategories:[{id:'tyres',name:'Tyres',fields:[{id:'load',label:'Load Index',stockKey:true}]}]};
 async function write(kind,key,doc){
+ try {
  await db.query('insert into tyredesk.records(kind,key,doc,revision) values($1,$2,$3::jsonb,1) '+
    'on conflict(kind,key) do update set doc=excluded.doc,revision=tyredesk.records.revision+1',
   [kind,key,JSON.stringify(doc)]);
+ } catch(error){throw Error('Cloud fixture '+kind+'/'+key+': '+error.message,{cause:error});}
 }
 try{
  await db.exec("create role authenticated; create role anon; create schema auth;"+
@@ -35,6 +37,7 @@ try{
  await db.exec(await read('supabase/migrations/20261122103925_enforce_billing_device_handover.sql'));
  await db.exec(await read('supabase/migrations/20261122120000_fix_billing_singleton_predicates.sql'));
  await db.exec(await read('supabase/migrations/20261122204818_enforce_shop_payment_refs_and_device_retirement.sql'));
+ await db.exec("select set_config('request.jwt.claim.sub','"+owner+"',false);");
  await write('settings','shop',shop);
  await write('catalog','legacy',fixture('legacy',baseId,{}));
  await db.exec(await read('supabase/migrations/20261123010000_tyre_custom_variant_identity.sql'));
