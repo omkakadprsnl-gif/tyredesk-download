@@ -1,3 +1,15 @@
+# TyreDesk 1.3.0
+
+Choose Simple or Detailed Inventory during shop setup or in Settings before recording stock. New purchases automatically match stock, with each purchase recorded separately. Existing tyre entries and purchase history are preserved. Inventory mode is locked once stock records exist.
+
+New bill displays the shop payment QR before saving. The owner confirms payments after checking receipt. Billing uses dependent tyre choices, compact item rows, reusable services and live totals. Invoice corrections adjust the stock difference. Cancellation restores the remaining tracked stock. Print in 58 mm, 80 mm or A4.
+
+A new device opens at shop sign-in and recovers synced records. Existing owners edit the business in Settings. Supabase measures database usage weekly. Automatic backups stay separate from sync and retain recovery points by shop.
+
+Android 1.3.0 installs over an earlier TyreDesk version with the same signing certificate. In 1.3.0, use Settings → Update App to check for future versions. Android asks you to confirm installation.
+
+APK SHA-256: `fa5b773697d0d3c321bb7ebbb80fee7ba1d103845ca9186d080345d33e5b1c94`
+
 # TyreDesk 1.2.1
 
 Fresh installations open at shop sign-in. Returning owners recover their saved business, and an empty account completes business setup once. Business details remain editable in Settings. The shop connection is preconfigured.
