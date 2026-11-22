@@ -1,3 +1,9 @@
+# TyreDesk 1.3.3
+
+The payment QR appears below the live bill summary before saving. It stays visible when the entire amount is entered as paid. A settled bill shows the remaining balance status without offering another payment confirmation.
+
+Home displays Update Now when TyreDesk detects a newer release. It checks on launch, on return to the app and periodically while open. The Android prompt identifies the signed download and mentions Play Protect.
+
 # TyreDesk 1.3.2
 
 Home has compact Add reminder and Backup buttons. The reminder bell and a short reminder summary highlight pending work. The backup button opens manual backup and setup options.
