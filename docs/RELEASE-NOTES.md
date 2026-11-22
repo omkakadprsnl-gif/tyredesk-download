@@ -1,3 +1,11 @@
+# TyreDesk 1.3.8
+
+The update notice now sits above the sign-in and shop setup forms. Terms & Conditions and Privacy Policy have Back buttons that return you to the form, and both list tyredeskofficial@gmail.com for support.
+
+Android updates open the official download page. Install the signed APK over an existing TyreDesk installation to retain local records. The Windows web app updates through the browser. This release uses the existing database format.
+
+`SHA-256` 5c023863e18523ff5ec0e1975f9a18f4042896a96a11c214200bd8c66688749a
+
 # TyreDesk 1.3.7
 
 Billing recovery now supports retiring a lost device with the shop administrator and reconciling newer verified backups. Nonblank UPI references are checked across the shop. Large Android backups can be compressed and restored in 1.3.7. The dashboard and invoice preview load faster with large histories.

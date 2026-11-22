@@ -1,11 +1,11 @@
 {
-  "version": "1.3.7",
-  "webVersion": "1.3.7",
-  "androidVersionCode": 21,
-  "apkSha256": "55341b0f11a58d161d17c9d0218ba34f7d9abe35eb317b8c321ce82ba9a981bc",
-  "appCommit": "b0fd7e4d38bbc9e4f566d17d076b47e07f485fb3",
-  "webCommit": "b0fd7e4d38bbc9e4f566d17d076b47e07f485fb3",
-  "androidBuildCommit": "b62bc70732086b328bc3094cb39562321c391270",
+  "version": "1.3.8",
+  "webVersion": "1.3.8",
+  "androidVersionCode": 22,
+  "apkSha256": "5c023863e18523ff5ec0e1975f9a18f4042896a96a11c214200bd8c66688749a",
+  "appCommit": "c7acb2d5f9cb246a77e247c1c3a4e979847cbdeb",
+  "webCommit": "70f290d174150fece75218d177cab954888fe987",
+  "androidBuildCommit": "3aa8b96cfeec7d9c057bf1172e5e848d6d2c6c20",
   "supabase": true,
   "releaseDate": "2026-11-23"
 }
