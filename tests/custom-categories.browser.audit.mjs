@@ -8,10 +8,12 @@ const root=new URL('../docs/app/',import.meta.url);
 const types={mjs:'application/javascript',js:'application/javascript',html:'text/html',css:'text/css'};
 const server=http.createServer(async(req,res)=>{
  try{
-  const name=new URL(req.url,'http://local').pathname.replace(/^\\/app\\//,'')||'index.html';
-  const target=new URL(name,root);
+  const route=new URL(req.url,'http://local').pathname;
+  const name=route.startsWith('/app/')?route.slice(5):'';
+  const filename=name||'index.html';
+  const target=new URL(filename,root);
   if(!target.href.startsWith(root.href))return res.writeHead(404).end();
-  res.setHeader('Content-Type',types[path.extname(name).slice(1)]||'application/octet-stream');
+  res.setHeader('Content-Type',types[path.extname(filename).slice(1)]||'application/octet-stream');
   res.end(await fs.readFile(target));
  }catch{res.writeHead(404).end();}
 });
