@@ -2,7 +2,9 @@
 const CACHE='tyredesk-pwa-web-v1.3.8';
 const APP=['./src/tyres.mjs','./src/tyre-ui.mjs','./src/stock-edit.mjs','./src/invoice-storage.mjs','./src/updates.mjs','./src/cloud.mjs','./src/cloud-store.mjs','./src/cloud-merge.mjs','./vendor/auth.mjs','./terms.html','./privacy.html','./src/legal.mjs','./src/legal-back.mjs','./','./index.html','./styles.css','./manifest.webmanifest','./src/main.mjs','./src/pwa-backup.mjs','./src/db.mjs','./src/logic.mjs','./src/i18n.mjs','./src/invoice.mjs','./src/whatsapp.mjs','./assets/icon-192.png','./assets/icon-512.png'];
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP)).then(() => self.skipWaiting()));
+  // Bypass the browser's HTTP cache when installing a new app shell.
+  const shell=APP.map(path=>new Request(new URL(path,self.registration.scope),{cache:'reload'}));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(shell)).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', event => {
   event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => (key.startsWith('tyredesk-static-') || key.startsWith('tyredesk-v') || key.startsWith('tyredesk-pwa-')) && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
