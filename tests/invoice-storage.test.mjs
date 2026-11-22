@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {calculateBill} from '../docs/app/src/logic.mjs';
 import {compactInvoiceLines} from '../docs/app/src/invoice-storage.mjs';
 
@@ -28,4 +29,10 @@ const oldBill={shopSnapshot:{name:'Historical Shop',logoData:'data:image/png;bas
 assert.equal(oldBill.shopSnapshot.logoData,'data:image/png;base64,legacy');
 assert.equal(oldBill.items[0].gross,1500000);
 assert.ok(compactInvoiceLines(oldBill.items)[0].totalPaise>=0);
+const mainSource=readFileSync(new URL('../docs/app/src/main.mjs',import.meta.url),'utf8');
+const orderSource=readFileSync(new URL('../docs/app/src/db.mjs',import.meta.url),'utf8');
+assert.doesNotMatch(mainSource,/<input name="logo"[^>]*type="file"/);
+assert.doesNotMatch(mainSource,/async function encodeLogo\(/);
+assert.doesNotMatch(orderSource,/logoData:settings\.logoData/);
+assert.match(orderSource,/items:compactInvoiceLines\(calculated\.lines\)/);
 console.log('PASS: compact invoice lines preserve prices, GST and totals; legacy records remain readable');
