@@ -1,0 +1,93 @@
+name: Publish signed TyreDesk 1.3.5
+on:
+  push:
+    branches: [tyredesk-135-publish]
+    paths: ['.github/workflows/publish-tyredesk-135.yml']
+permissions:
+  contents: write
+  issues: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report publication run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/2/comments" -f body="TyreDesk 1.3.5 publication started: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Download and independently verify signed APK
+        env:
+          ARTIFACT_URL: 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-c410-81f4-8969-5d628bd83723/raw?se=2026-11-22T12%3A04%3A21Z&sp=r&sv=2026-06-06&sr=b&scid=1c65578a-05c0-55b0-b44f-ccdcd6441cac&skoid=9b41a688-1b44-4731-856e-b0efcf3660ed&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-22T05%3A36%3A52Z&ske=2026-11-23T05%3A36%3A52Z&sks=b&skv=2026-06-06&sig=O2hgHr4nnmUIxGBR6mowNpEzWwn0ZcY7in4hl6D/iSU%3D'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 90 "$ARTIFACT_URL" -o /tmp/tyredesk-release.zip
+          unzip -t /tmp/tyredesk-release.zip >/dev/null
+          unzip -p /tmp/tyredesk-release.zip TyreDesk.apk > /tmp/TyreDesk-1.3.5.apk
+          echo 'd9029d7c685cd0c030a21c5d99abd2a3a1868a16a71116052e4b26f17ea66e49  /tmp/TyreDesk-1.3.5.apk' | sha256sum -c -
+          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          OLD_CERT=$("$SIGNER" verify --print-certs docs/TyreDesk.apk | grep -m1 'Signer #1 certificate SHA-256 digest:')
+          NEW_CERT=$("$SIGNER" verify --print-certs /tmp/TyreDesk-1.3.5.apk | grep -m1 'Signer #1 certificate SHA-256 digest:')
+          test "$OLD_CERT" = "$NEW_CERT"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging /tmp/TyreDesk-1.3.5.apk > /tmp/tyredesk-package.txt
+          grep -q "name='com.tyredesk.offline'" /tmp/tyredesk-package.txt
+          grep -q "versionCode='19'" /tmp/tyredesk-package.txt
+          grep -q "versionName='1.3.5'" /tmp/tyredesk-package.txt
+          ! grep -q 'application-debuggable' /tmp/tyredesk-package.txt
+          grep -q 'compactInvoiceLines' docs/app/src/db.mjs
+          ! grep -q 'name="logo"' docs/app/src/main.mjs
+      - name: Update APK and release metadata together
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/TyreDesk-1.3.5.apk docs/TyreDesk.apk
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          filename=Path("docs/release.json")
+          previous=json.loads(filename.read_text(encoding="utf-8"))
+          assert previous["version"]=="1.3.4" and previous["androidVersionCode"]==18, "Release changed; do not overwrite it"
+          next_release={
+            **previous,
+            "version":"1.3.5",
+            "webVersion":"1.3.5",
+            "androidVersionCode":19,
+            "apkSha256":"d9029d7c685cd0c030a21c5d99abd2a3a1868a16a71116052e4b26f17ea66e49",
+            "appCommit":"37ca6b0135b576cbb5850ca0b9dcdf1d15c4a37d",
+            "webCommit":"37ca6b0135b576cbb5850ca0b9dcdf1d15c4a37d",
+            "androidBuildCommit":"29ca421db5e9f8b32902637371eec9916bb1841c",
+            "releaseDate":"2026-11-22",
+          }
+          filename.write_text(json.dumps(next_release,indent=2)+"\n",encoding="utf-8")
+          notes=Path("docs/RELEASE-NOTES.md")
+          old=notes.read_text(encoding="utf-8")
+          preface=("# TyreDesk 1.3.5\n\n"
+                   "Removed the shop logo upload field. New invoices no longer copy shop logo images. "
+                   "Invoices omit temporary calculation and editor fields while retaining item prices, totals, GST breakdowns and financial history. "
+                   "Previously issued invoices remain readable, and data is preserved when the signed APK is installed over 1.3.4.\n\n"
+                   "APK SHA-256: `d9029d7c685cd0c030a21c5d99abd2a3a1868a16a71116052e4b26f17ea66e49`\n\n"
+                   "Play Protect's earlier Android 16 warning remains under investigation. "
+                   "Do not disable Play Protect to install an APK that Android identifies as harmful.\n\n")
+          notes.write_text(preface+old,encoding="utf-8")
+          PY
+      - name: Commit verified APK and metadata to the public download site
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'TyreDesk Release Automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/TyreDesk.apk docs/release.json docs/RELEASE-NOTES.md
+          git commit -m 'Publish signed TyreDesk 1.3.5 Android update'
+          git push origin HEAD:main
+      - name: Report publication outcome
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+        shell: bash
+        run: |
+          gh api "repos/${{ github.repository }}/issues/2/comments" -f body="TyreDesk 1.3.5 publication result: $RESULT. Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}."
