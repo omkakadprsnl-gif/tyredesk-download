@@ -1,3 +1,11 @@
+# TyreDesk 1.3.4
+
+New shops can add services such as wheel alignment and balancing during setup. Open **Settings → Services** to add, edit or hide services and set default prices. Select a saved service on a new invoice and adjust its rate for that sale if needed.
+
+Automatic billing handover is available for shops whose cloud project has enabled it. Close TyreDesk while the device is connected and allow its saved work to sync. Another connected device opens billing automatically. If a device goes offline or stops before it can sync, reopen it online and close it again.
+
+Upgrade all issuing devices to 1.3.4 and confirm their records have synced before enabling billing handover on the shop project.
+
 # TyreDesk 1.3.3
 
 The payment QR appears below the live bill summary before saving. It stays visible when the entire amount is entered as paid. A settled bill shows the remaining balance status without offering another payment confirmation.
