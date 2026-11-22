@@ -1,3 +1,13 @@
+# TyreDesk 1.3.2
+
+Home has compact Add reminder and Backup buttons. The reminder bell and a short reminder summary highlight pending work. The backup button opens manual backup and setup options.
+
+Automatic local backups save once per local day while TyreDesk is open. Manual and Google Drive backups are available on demand.
+
+Add purchased tyres uses dependent Brand, Model and Size dropdowns. Each dropdown offers a new value alongside saved choices. The purchase form scrolls within the space above the mobile keyboard.
+
+APK SHA-256: `7c2d8bc00b4741a3c8d84be2bb3b74b7e256495adcb00a3151f35a16c3c0c927`
+
 # TyreDesk 1.3.1
 
 Mobile sign-in uses less space. Tablet billing and payment screens keep actions within the page. Android removes older downloaded update files from its update cache on the backup schedule.
