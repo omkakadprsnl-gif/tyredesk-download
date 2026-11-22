@@ -736,7 +736,7 @@ function draftQr(calc){
 }
 
 function androidUpdateNote(){
- return nativeAndroid()?`<p class="small-muted update-android-note">TyreDesk comes from our signed download site. Google Play Protect checks apps from outside Google Play. If it blocks the update as harmful, keep Play Protect enabled and use TyreDesk in your browser.</p>`:'';
+ return nativeAndroid()?`<p class="small-muted update-android-note">TyreDesk updates are digitally signed and downloaded from the TyreDesk site. Android may check the APK with Google Play Protect.</p>`:'';
 }
 function updateActions(){
  const update=updateStatus();
