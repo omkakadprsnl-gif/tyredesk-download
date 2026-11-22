@@ -263,7 +263,8 @@ export async function buyTyres({mode,brand,model,size,existingId,qty,costPaise,p
     const next=stockInt((product.stockQty||0)+qty,'Stock');
     const name=tyreName(product,mode,shop);
     await request(catalog.put({...product,stockQty:next,pricePaise,costPaise,updatedAt:now,
-      supplier:safeText(supplier)||product.supplier||''}));
+      supplier:safeText(supplier)||product.supplier||'',
+      ...(attributes===undefined?{}:{attributes:{...product.attributes,...inventoryAttributes(shop,product,attributes)}})}));
     const purchase={id:purchaseId,productId:product.id,productName:name,qty,costPaise,pricePaise,
       supplier:safeText(supplier),reference:safeText(reference),createdAt:now};
     await request(purchases.add(purchase));
