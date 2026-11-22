@@ -45,8 +45,7 @@ const localDriveDateKey='tyredesk-drive-provider-saved';
 const driveMarker=()=>nativeAndroid()?backupInfo.driveLastSaved:reminderStore.getItem(localDriveDateKey);
 const driveReminderDue=()=>!!state.data?.settings && !String(driveMarker()||'').startsWith(driveDay()) && reminderStore.getItem(driveReminderDismissKey)!==driveDay();
 const backupFileName=()=>`TyreDesk-backup-${todayISO()}-${fileSafeName(state.data.settings.name)}.json`;
-function reminderBanner(){return driveReminderDue()?`<section class="drive-reminder" aria-label="Daily Google Drive backup reminder"><span class="drive-reminder-icon">${I('shield')}</span><div><strong>Back up to Google Drive today</strong><p>Your local backup is automatic, but a Drive copy protects you if this device is lost.</p></div><button class="button primary" data-action="backup-drive">Back up to Drive</button><button class="button" data-action="dismiss-drive-reminder">Tomorrow</button></section>`:'';}
-let backupTimer=null,backupBusy=false,backupQueued=false;
+let backupTimer=null,backupBusy=false;
 const nativeAndroid=()=>!!window.TyreDeskAndroid?.stageBackupSnapshot;
 function backupStatusLine(){
  if(hostedPwa()&&!backupInfo.enabled){
@@ -57,13 +56,10 @@ function backupStatusLine(){
  if(nativeAndroid()&&!backupInfo.enabled)return 'For this Android version, choose a local backup folder once.';
  if(backupInfo.error)return 'Backup problem: '+backupInfo.error;
  if(backupInfo.lastSaved)return 'Last verified local backup: '+new Date(backupInfo.lastSaved).toLocaleString('en-IN');
- return nativeAndroid()?'Local backups run when records change and on Android’s daily background schedule.':
-        hostedPwa()?'Automatic backups run while TyreDesk is open and your folder is accessible.':
-        'Local backups run while TyreDesk is open.';
+ return 'One automatic local backup per day while TyreDesk is open.';
 }
 function backupFolderActionLabel(){return backupInfo.needsPermission?'Reconnect Backup Folder':backupInfo.folder?'Change Backup Folder':'Choose Backup Folder';}
-function backupSettingsCard(){return `<div class="autobackup-panel"><div class="autobackup-symbol">${I('database')}</div><div class="autobackup-copy"><strong>Daily automatic backups</strong><p data-backup-status>${E(backupStatusLine())}</p><small>${hostedPwa()?'Choose a folder in Chrome or Edge once. TyreDesk will save verified recovery files there while the app is open.':nativeAndroid()?'Automatic copies: Downloads / TyreDesk Backups (Android 10+), or your chosen folder. Android may delay background work.':'Automatic copies: Documents / TyreDesk Backups while the local PC app is running.'} Up to 14 daily restore points are kept. ${hostedPwa()?'Folder permission may need renewing after restarting the browser.':''}</small></div>${nativeAndroid()||hostedPwa()?`<button type="button" class="button" data-action="choose-backup-folder"><span data-backup-folder-label>${E(backupFolderActionLabel())}</span></button>`:''}</div>`;}
-function pwaBackupSetupBanner(){return hostedPwa()&&!backupInfo.enabled?`<section class="pwa-backup-banner" aria-label="Set up automatic local backups"><span>${I('shield')}</span><div><strong>${backupInfo.needsPermission?'Resume automatic backups':'Protect your shop data automatically'}</strong><p>${backupInfo.needsPermission?'Your backup folder needs permission again. Existing backup files remain in the folder.':'Choose a folder once. TyreDesk will save recovery copies there while it is open.'}</p></div><button type="button" class="button primary" data-action="choose-backup-folder"><span data-backup-folder-label>${E(backupFolderActionLabel())}</span></button></section>`:'';}
+function backupSettingsCard(){return `<div class="autobackup-panel"><div class="autobackup-symbol">${I('database')}</div><div class="autobackup-copy"><strong>Daily automatic backups</strong><p data-backup-status>${E(backupStatusLine())}</p><small>${hostedPwa()?'Choose a folder in Chrome or Edge once. TyreDesk saves one verified recovery file per day while the app is open.':nativeAndroid()?'Automatic copies are saved once per day while TyreDesk is open, in Downloads / TyreDesk Backups (Android 10+) or your chosen folder.':'Automatic copies: Documents / TyreDesk Backups while the local PC app is running.'} Up to 14 daily restore points are kept. ${hostedPwa()?'Folder permission may need renewing after restarting the browser.':''}</small></div>${nativeAndroid()||hostedPwa()?`<button type="button" class="button" data-action="choose-backup-folder"><span data-backup-folder-label>${E(backupFolderActionLabel())}</span></button>`:''}</div>`;}
 function updateBackupStatus(){
  document.querySelectorAll('[data-backup-status]').forEach(el=>{el.textContent=backupStatusLine();});
  document.querySelectorAll('[data-backup-folder-label]').forEach(el=>{el.textContent=backupFolderActionLabel();});
@@ -76,31 +72,41 @@ async function loadBackupStatus(){
  }catch(e){backupInfo.error=e.message;console.warn('Auto backup status not available',e)}
  updateBackupStatus();
 }
-async function flushAutoBackup(){
- if(!state.data?.settings)return;
- if(backupBusy){backupQueued=true;return;}
- backupBusy=true;
- try {
-  if(hostedPwa()){
-   const status=await pwaBackups.getStatus();Object.assign(backupInfo,status);
-   // Never claim to save without folder access or trigger a background permission dialog.
-   if(!status.enabled)return;
-  }
-  const json=await exportBackup();
-  if(nativeAndroid()){
-   window.TyreDeskAndroid.stageBackupSnapshot(json);
-  }else if(hostedPwa()){
-   Object.assign(backupInfo,await pwaBackups.saveBackup(json));
-  }else {
-   const resp=await fetch('/_tyredesk/autobackup',{method:'POST',headers:{'Content-Type':'application/json','X-TyreDesk-Local':'backup-v1'},body:json,cache:'no-store'});
-   if(!resp.ok)throw Error('PC backup unavailable ('+resp.status+')');
-   Object.assign(backupInfo,await resp.json());
-  }
-  backupInfo.error='';
- }catch(err){backupInfo.error=err.message;console.warn('Automatic backup could not be saved:',err);}
- finally{backupBusy=false;updateBackupStatus();if(backupQueued){backupQueued=false;scheduleAutoBackup();}}
+function automaticBackupDue(){
+ const saved=backupInfo.lastSaved?new Date(backupInfo.lastSaved):null;
+ return document.visibilityState==='visible' && !!state.data?.settings &&
+   (!saved||!Number.isFinite(saved.getTime())||todayISO(saved)!==todayISO());
 }
-function scheduleAutoBackup(){if(!state.data?.settings)return;clearTimeout(backupTimer);backupTimer=setTimeout(flushAutoBackup,1100);}
+async function flushAutoBackup(){
+ backupTimer=null;
+ if(backupBusy||!automaticBackupDue())return;
+ backupBusy=true;
+ const write=async()=>{
+   await loadBackupStatus();
+   if(!automaticBackupDue()||(hostedPwa()&&!backupInfo.enabled))return;
+   const json=await exportBackup();
+   if(document.visibilityState!=='visible')return;
+   if(nativeAndroid()){
+     window.TyreDeskAndroid.stageBackupSnapshot(json);
+   }else if(hostedPwa()){
+     Object.assign(backupInfo,await pwaBackups.saveBackup(json));
+   }else{
+     const resp=await fetch('/_tyredesk/autobackup',{method:'POST',headers:{'Content-Type':'application/json','X-TyreDesk-Local':'backup-v1'},body:json,cache:'no-store'});
+     if(!resp.ok)throw Error('PC backup unavailable ('+resp.status+')');
+     Object.assign(backupInfo,await resp.json());
+   }
+   backupInfo.error='';
+ };
+ try{
+   if(navigator.locks)await navigator.locks.request('tyredesk-daily-backup',write);
+   else await write();
+ }catch(err){backupInfo.error=err.message;console.warn('Automatic backup could not be saved:',err);}
+ finally{backupBusy=false;updateBackupStatus();}
+}
+function scheduleAutoBackup(){
+ if(backupBusy||backupTimer!==null||!automaticBackupDue())return;
+ backupTimer=setTimeout(flushAutoBackup,1100);
+}
 window.TyreDeskBackupFolderReady=()=>{loadBackupStatus().then(()=>scheduleAutoBackup())};
 window.TyreDeskBackupStatusChanged=()=>{loadBackupStatus()};
 window.TyreDeskDriveBackupSaved=(saved)=>{if(saved){loadBackupStatus().then(()=>{toast('Backup saved through Google Drive. Check that it appears in your Drive account.');render();});}else{toast('Google Drive backup not confirmed. Select Google Drive in the file picker.',true);}};
@@ -114,35 +120,35 @@ async function encodeLogo(file){if(!file)return '';if(file.size>3_000_000)throw 
 async function refresh(){state.data=await summaryData();document.body.dataset.theme=state.data.settings?.theme||'light';document.documentElement.lang=lang();render();scheduleAutoBackup();}
 function startBill(){state.bill={customerQuery:'',selectedCustomerId:null,customerName:'',customerPhone:'',vehicle:'',lines:[],billDiscountType:'fixed',billDiscountValue:'0',paid:'0',method:'cash',paymentReference:'',notes:'',supplyMode:'intra',requestId:uid(),saving:false};}
 async function init(){try{await getDatabase();const shop=await getSetting();state.bill=shop?await receivedDraft():null;state.locked=!!shop&&sessionStorage.getItem('tyredesk-unlocked')!=='yes';await refresh();await loadBackupStatus();render();if(!nativeAndroid()&&'serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('Service worker not available',err));}window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();state.installPrompt=e;});
- if(hostedPwa()){
-  // Browser timers stop when the PWA is closed; catch up after reopening or resuming.
-  const checkDay=()=>{if(document.visibilityState==='visible'&&state.data?.settings&&(!backupInfo.lastSaved||backupInfo.lastSaved.slice(0,10)!==todayISO()))scheduleAutoBackup();};
-  document.addEventListener('visibilitychange',checkDay);
-  window.addEventListener('focus',checkDay);
-  window.setInterval(checkDay,15*60*1000);
- }}catch(e){console.error(e);$('#app').innerHTML=`<div class="boot"><h1>Unable to open local data</h1><p>${E(e.message)}</p><p>Use localhost or HTTPS and check that browser storage is enabled.</p></div>`;}}
+ document.addEventListener('visibilitychange',scheduleAutoBackup);
+ window.addEventListener('focus',scheduleAutoBackup);
+ window.setInterval(scheduleAutoBackup,15*60*1000);
+ scheduleAutoBackup();
+ }catch(e){console.error(e);$('#app').innerHTML=`<div class="boot"><h1>Unable to open local data</h1><p>${E(e.message)}</p><p>Use localhost or HTTPS and check that browser storage is enabled.</p></div>`;}}
 function pendingReminders(){return (state.data?.reminders||[]).slice().sort((a,b)=>a.dueAt.localeCompare(b.dueAt));}
 
 function dueReminders(){return pendingReminders().filter(r=>Date.parse(r.dueAt)<=Date.now());}
 
 function reminderDateLabel(value){const date=new Date(value);return date.toLocaleString(lang()==='hi'?'hi-IN':lang()==='mr'?'mr-IN':'en-IN',{day:'numeric',month:'short',year:'numeric',hour:'numeric',minute:'2-digit'});}
 
-function reminderRow(r,compact=false){
+function reminderRow(r){
  const due=Date.parse(r.dueAt)<=Date.now();
- return `<div class="reminder-row ${due?'is-due':''} ${compact?'compact':''}">
+ return `<div class="reminder-row ${due?'is-due':''}">
    <div class="reminder-row-icon">${I('bell')}</div>
    <div class="reminder-row-info"><strong>${E(r.title)}</strong><span class="reminder-row-when">${I('clock')} ${E(reminderDateLabel(r.dueAt))}${due?` <b>· ${T('remindersDue')}</b>`:''}</span>${r.notes?`<p>${E(r.notes)}</p>`:''}</div>
-   <div class="reminder-row-actions">${!compact?`<button class="button small" data-action="edit-reminder" data-reminder="${E(r.id)}">${T('remindersEdit')}</button>`:''}<button class="button small reminder-complete" data-action="complete-reminder" data-reminder="${E(r.id)}">${I('check')} ${T('remindersDone')}</button></div>
+   <div class="reminder-row-actions"><button class="button small" data-action="edit-reminder" data-reminder="${E(r.id)}">${T('remindersEdit')}</button><button class="button small reminder-complete" data-action="complete-reminder" data-reminder="${E(r.id)}">${I('check')} ${T('remindersDone')}</button></div>
  </div>`;
 }
 
-function reminderDashboard(){
- const all=pendingReminders(),due=all.filter(r=>Date.parse(r.dueAt)<=Date.now()),shown=due.length?due.slice(0,4):all.slice(0,3);
- return `<section class="reminders-dashboard ${due.length?'reminders-attention':''}" aria-label="${E(T('reminders'))}">
-   <div class="reminders-dashboard-head"><span class="reminders-dashboard-symbol">${I('bell')}${due.length?'<i class="reminder-red-dot"></i>':''}</span><div><h2>${due.length?`${due.length} ${T('remindersNeedAttention')}`:T('reminders')}</h2><p>${due.length?T('remindersDueIntro'):all.length?T('remindersUpcomingIntro'):T('remindersEmptyIntro')}</p></div><button class="button primary" data-action="add-reminder">${I('plus')} ${T('remindersAdd')}</button></div>
-   ${shown.length?`<div class="reminders-dashboard-list">${shown.map(r=>reminderRow(r,true)).join('')}</div>`:''}
-   ${all.length?`<button type="button" class="reminders-view-all" data-nav="reminders">${T('remindersAll')} ${I('arrow')}</button>`:''}
- </section>`;
+function homeTools(){
+ const pending=pendingReminders();
+ const due=dueReminders();
+ const next=due[0]||pending[0];
+ const backupDue=driveReminderDue()||((hostedPwa()||nativeAndroid())&&!backupInfo.enabled);
+ return `<div class="dash-home-tools" aria-label="Reminders and backups">
+   <button type="button" class="button" data-action="add-reminder">${I('bell')}${T('remindersAdd')}</button>
+   <button type="button" class="button" data-action="backup-options">${I('download')}Backup${backupDue?'<span class="backup-attention-dot" aria-label="Backup needs attention"></span>':''}</button>
+ </div>${next?`<p class="home-reminder-summary ${due.length?'is-due':''}">${I('bell')}<span><strong>${due.length?`${due.length} ${T('remindersDue')}`:T('remindersUpcoming')}</strong> · ${E(next.title)}</span></p>`:''}`;
 }
 
 function reminders(){
@@ -204,13 +210,13 @@ function dashboard(){
  const s=stats(),shop=state.data.settings,orders=activeOrders().slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
  const low=state.data.catalog.filter(p=>p.type==='tyre'&&(p.stockQty||0)<=p.lowStockAt);
  const todayCount=orders.filter(o=>o.date===todayISO()).length;
- const primary=`${reminderDashboard()}${pwaBackupSetupBanner()}${reminderBanner()}<section class="dash-lead"><div class="dash-lead-copy"><div class="dash-lead-eyebrow"><span class="live-dot"></span> YOUR WORKSHOP · ${E(fmtDate(new Date().toISOString(),true))}</div><h1>${E(shop.name)}</h1><p>Everything you need for a productive day.</p><div class="dash-lead-actions"><button class="dash-action-new" data-nav="billing">${I('plus')} New bill ${I('arrow')}</button><button class="dash-action-outline" data-action="add-customer">${I('users')} Add customer</button></div></div><div class="dash-lead-today"><span>SALES TODAY</span><strong>${M(s.todaySales)}</strong><small>${todayCount} ${todayCount===1?'invoice':'invoices'} today</small></div></section>`;
+ const primary=`<section class="dash-lead"><div class="dash-lead-copy"><div class="dash-lead-eyebrow"><span class="live-dot"></span> YOUR WORKSHOP · ${E(fmtDate(new Date().toISOString(),true))}</div><h1>${E(shop.name)}</h1><p>Everything you need for a productive day.</p><div class="dash-lead-actions"><button class="dash-action-new" data-nav="billing">${I('plus')} New bill ${I('arrow')}</button><button class="dash-action-outline" data-action="add-customer">${I('users')} Add customer</button></div></div><div class="dash-lead-today"><span>SALES TODAY</span><strong>${M(s.todaySales)}</strong><small>${todayCount} ${todayCount===1?'invoice':'invoices'} today</small></div></section>`;
  const tiles=`<div class="dash-metrics">${statCard('Est. profit',M(s.profit.estimatedProfitPaise),'chart','green','This month · after stock costs & expenses')}${statCard('This month',M(s.monthSales),'money','blue','Total billed this month')}${statCard('Customer dues',M(s.pending),'clock','gold','Unpaid balances')}${statCard('Active customers',String(s.customers),'users','orange','Saved customer profiles')}</div>`;
  const alertLines=`${s.pending>0?`<button type="button" class="dues-dashboard-link" data-nav="dues">${I('clock')}<span>${T('openOutstanding')} <strong>· ${M(s.pending)}</strong></span>${I('arrow')}</button>`:''}${low.length?`<button class="stock-alert" data-nav="inventory">${I('alert')}<span><strong>${T('lowStock')}</strong> · ${low.length} ${T('itemsNeedStock')}</span>${I('arrow')}</button>`:''}`;
  const chart=`<section class="panel"><div class="panel-header"><div><h3>${T('salesByDay')}</h3><small>LAST 7 DAYS · INVOICE VALUE</small></div><span class="badge gray">${T('live')}</span></div>${dailyGraph(orders)}</section>`;
  const actions=`<section class="panel quick-panel"><div class="panel-header"><div><h3>Quick actions</h3><small>Common workshop tasks</small></div></div><div class="panel-inner" style="padding-top:5px"><button class="quick-card" data-nav="billing"><span class="quick-symbol">${I('receipt')}</span><span class="quick-text"><strong>${T('newInvoice')}</strong><small>Create a receipt</small></span>${I('arrow','arrow')}</button><button class="quick-card" data-action="buy-tyres"><span class="quick-symbol green">${I('database')}</span><span class="quick-text"><strong>${T('addTyres')}</strong><small>Choose a tyre and enter the quantity</small></span>${I('arrow','arrow')}</button><button class="quick-card" data-nav="dues"><span class="quick-symbol blue">${I('clock')}</span><span class="quick-text"><strong>Collect payments</strong><small>View outstanding balances</small></span>${I('arrow','arrow')}</button><button class="quick-card" data-nav="reports"><span class="quick-symbol blue">${I('chart')}</span><span class="quick-text"><strong>Reports</strong><small>Review shop performance</small></span>${I('arrow','arrow')}</button></div></section>`;
  const recent=`<div class="section-caption"><h2>${T('recentInvoices')}</h2><button class="button-plain" data-nav="sales">${T('showAll')} ${I('chevron')}</button></div><section class="panel">${orders.length?orders.slice(0,6).map(o=>`<div class="invoice-list-row" data-invoice="${o.id}"><span class="initial-icon">${I('receipt')}</span><span class="info"><strong>${E(o.customerSnapshot.name||'Walk-in customer')}</strong><small>${E(o.number)} · ${fmtDate(o.createdAt,true)} ${o.vehicle?'· '+E(o.vehicle):''}</small></span>${statusBadge(o.status)}<span class="right"><strong>${M(o.totals.grandPaise)}</strong><small>${o.duePaise?`${M(o.duePaise)} due`:T('completed')}</small></span></div>`).join(''):empty(T('noInvoices'),T('emptyState'),'receipt',`<button class="button primary" data-nav="billing">${I('plus')}${T('newInvoice')}</button>`)}</section>`;
- return `<div class="dash-page">${primary}${tiles}${alertLines}<div class="board-grid">${chart}${actions}</div>${recent}</div>`;
+ return `<div class="dash-page">${primary}${homeTools()}${tiles}${alertLines}<div class="board-grid">${chart}${actions}</div>${recent}</div>`;
 }
 
 function customers(){const d=state.data;const q=state.search.trim().toLowerCase();const filtered=d.customers.filter(c=>!q||[c.name,c.phone,...d.vehicles.filter(v=>v.customerId===c.id).map(v=>v.reg)].some(v=>String(v||'').toLowerCase().includes(q))).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
@@ -316,9 +322,19 @@ function inventoryModePanel(){
  return `<section class="setting-panel"><h2>Inventory Mode</h2><form id="inventory-mode-form">${modeChoices(mode,locked)}
  ${locked?'':'<button type="submit" class="button primary">Save inventory mode</button>'}</form></section>`;
 }
-function settings(){const s=state.data.settings;return header(T('settings'),T('settingsSubtitle'),'PREFERENCES / OWNERSHIP')+`<div class="settings-grid"><div>${cloudPanel()}${updatePanel()}${inventoryModePanel()}<section class="setting-panel"><h2>${T('shopProfile')}</h2><p class="lead">Business details are captured on every new invoice. Historical invoices keep their original business details.</p><form id="settings-form"><div class="field-grid"><div class="field field-spread"><label>${T('businessName')}</label><input name="name" required value="${E(s.name)}"></div><div class="field"><label>${T('ownerName')}</label><input name="owner" required value="${E(s.owner)}"></div><div class="field"><label>${T('phone')}</label><input name="phone" required value="${E(s.phone)}"></div><div class="field"><label>${T('whatsapp')}</label><input name="whatsapp" value="${E(s.whatsapp||'')}"></div><div class="field"><label>${T('address')}</label><input name="address" value="${E(s.address||'')}"></div><div class="field"><label>${T('city')}</label><input name="city" value="${E(s.city||'')}"></div><div class="field"><label>${T('state')}</label><input name="state" value="${E(s.state||'')}"></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="${E(s.invoicePrefix||'INV')}"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false" ${!s.gstRegistered?'selected':''}>${T('unregistered')}</option><option value="true" ${s.gstRegistered?'selected':''}>${T('registered')}</option></select></div><div class="field"><label>${T('gstin')}</label><input name="gstin" maxlength="15" value="${E(s.gstin||'')}"></div><div class="field field-spread"><label>${T('terms')}</label><textarea name="terms" placeholder="Optional service terms, warranty notes…">${E(s.terms||'')}</textarea></div><div class="field field-spread"><label for="payment-qr-file">Shop payment QR (UPI image)</label><input id="payment-qr-file" name="paymentQr" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP, up to 5 MB. Use a clear, complete QR with its white border. Verify the recipient in your payment app. Synced with shop settings and included in backups.</small>${s.paymentQrData?'<img class="qr-settings-preview" src="'+E(s.paymentQrData)+'" alt="Shop payment QR"><label><input name="removeQr" type="checkbox"> Remove payment QR</label>':''}</div><div class="field field-spread"><label>${T('logo')}</label><input name="logo" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP · compressed locally, max 3 MB</small>${s.logoData?`<img src="${E(s.logoData)}" alt="Business logo" style="height:53px;width:53px;object-fit:contain;border:1px solid var(--border);border-radius:10px">`:''}</div></div><button class="button primary settings-save" type="submit">${I('check')}${T('saveChanges')}</button></form></section><section class="setting-panel"><h2>${T('language')} & ${T('theme')}</h2><p class="lead">Switch the application language or appearance instantly.</p><div class="field-grid"><div class="field"><label>${T('language')}</label><select id="setting-language"><option value="en" ${s.language==='en'?'selected':''}>English</option><option value="hi" ${s.language==='hi'?'selected':''}>हिंदी</option><option value="mr" ${s.language==='mr'?'selected':''}>मराठी</option></select></div><div class="field"><label>${T('theme')}</label><select id="setting-theme"><option value="light" ${(s.theme||'light')==='light'?'selected':''}>${T('light')}</option><option value="dark" ${s.theme==='dark'?'selected':''}>${T('dark')}</option></select></div></div></section></div><div>${backupSettingsCard()}<section class="setting-panel"><h2>${T('backupRestore')}</h2><p class="lead">${T('backupHint')}</p><div class="setting-actions"><button class="setting-action" data-action="backup-drive">${I('upload')}<span><strong>Back Up to Google Drive</strong><small>Keep a copy safely outside this device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore-drive">${I('download')}<span><strong>Restore from Google Drive</strong><small>Recover a shop on this or a new device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="backup">${I('download')}<span><strong>${T('backup')}</strong><small>Export full verified JSON archive</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore">${I('upload')}<span><strong>${T('restore')}</strong><small>Validate and atomically replace the data</small></span>${I('chevron','trailing')}</button><input id="restore-file" type="file" accept=".json,application/json" hidden></div><div class="muted-note" style="margin-top:18px">${I('alert')} ${T('restoreWarning')}</div></section><section class="setting-panel"><h2>${T('security')}</h2><p class="lead">${T('securityNote')}</p><div class="setting-actions"><button class="setting-action" data-action="change-pin">${I('lock')}<span><strong>${T('changePassword')}</strong><small>Current PIN required</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="persist-storage">${I('shield')}<span><strong>Request protected storage</strong><small>Ask browser not to evict local records</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="install">${I('mobile')}<span><strong>${T('install')}</strong><small>Make this an app on your device</small></span>${I('chevron','trailing')}</button></div></section><section class="setting-panel"><h2>Terms &amp; Privacy</h2><p>${legalLinks()}</p><p class="small-muted">${s.legalConsent?'Accepted version '+E(s.legalConsent.termsVersion)+' on '+E(new Date(s.legalConsent.acceptedAt).toLocaleString('en-IN')):'This shop predates consent recording; no acceptance has been assumed.'}</p><p>These documents should be reviewed by an Indian legal professional before commercial distribution.</p></section></div></div>`;}
-function modal(title,subtitle,body,footer='',wide=false){state.modal=`<div class="overlay" data-close-modal><div class="modal ${wide?'xl':''}" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>${title}</h2>${subtitle?`<p>${subtitle}</p>`:''}</div><button class="icon-button" data-action="close-modal" aria-label="Close">${I('close')}</button></div><div class="modal-body">${body}</div>${footer?`<div class="modal-footer">${footer}</div>`:''}</div></div>`;const h=$('#modal-host');if(h)h.innerHTML=state.modal;}
+function settings(){const s=state.data.settings;return header(T('settings'),T('settingsSubtitle'),'PREFERENCES / OWNERSHIP')+`<div class="settings-grid"><div>${cloudPanel()}${updatePanel()}${inventoryModePanel()}<section class="setting-panel"><h2>${T('shopProfile')}</h2><p class="lead">Business details are captured on every new invoice. Historical invoices keep their original business details.</p><form id="settings-form"><div class="field-grid"><div class="field field-spread"><label>${T('businessName')}</label><input name="name" required value="${E(s.name)}"></div><div class="field"><label>${T('ownerName')}</label><input name="owner" required value="${E(s.owner)}"></div><div class="field"><label>${T('phone')}</label><input name="phone" required value="${E(s.phone)}"></div><div class="field"><label>${T('whatsapp')}</label><input name="whatsapp" value="${E(s.whatsapp||'')}"></div><div class="field"><label>${T('address')}</label><input name="address" value="${E(s.address||'')}"></div><div class="field"><label>${T('city')}</label><input name="city" value="${E(s.city||'')}"></div><div class="field"><label>${T('state')}</label><input name="state" value="${E(s.state||'')}"></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="${E(s.invoicePrefix||'INV')}"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false" ${!s.gstRegistered?'selected':''}>${T('unregistered')}</option><option value="true" ${s.gstRegistered?'selected':''}>${T('registered')}</option></select></div><div class="field"><label>${T('gstin')}</label><input name="gstin" maxlength="15" value="${E(s.gstin||'')}"></div><div class="field field-spread"><label>${T('terms')}</label><textarea name="terms" placeholder="Optional service terms, warranty notes…">${E(s.terms||'')}</textarea></div><div class="field field-spread"><label for="payment-qr-file">Shop payment QR (UPI image)</label><input id="payment-qr-file" name="paymentQr" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP, up to 5 MB. Use a clear, complete QR with its white border. Verify the recipient in your payment app. Synced with shop settings and included in backups.</small>${s.paymentQrData?'<img class="qr-settings-preview" src="'+E(s.paymentQrData)+'" alt="Shop payment QR"><label><input name="removeQr" type="checkbox"> Remove payment QR</label>':''}</div><div class="field field-spread"><label>${T('logo')}</label><input name="logo" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP · compressed locally, max 3 MB</small>${s.logoData?`<img src="${E(s.logoData)}" alt="Business logo" style="height:53px;width:53px;object-fit:contain;border:1px solid var(--border);border-radius:10px">`:''}</div></div><button class="button primary settings-save" type="submit">${I('check')}${T('saveChanges')}</button></form></section><section class="setting-panel"><h2>${T('language')} & ${T('theme')}</h2><p class="lead">Switch the application language or appearance instantly.</p><div class="field-grid"><div class="field"><label>${T('language')}</label><select id="setting-language"><option value="en" ${s.language==='en'?'selected':''}>English</option><option value="hi" ${s.language==='hi'?'selected':''}>हिंदी</option><option value="mr" ${s.language==='mr'?'selected':''}>मराठी</option></select></div><div class="field"><label>${T('theme')}</label><select id="setting-theme"><option value="light" ${(s.theme||'light')==='light'?'selected':''}>${T('light')}</option><option value="dark" ${s.theme==='dark'?'selected':''}>${T('dark')}</option></select></div></div></section></div><div id="backup-settings">${backupSettingsCard()}<section class="setting-panel"><h2>${T('backupRestore')}</h2><p class="lead">${T('backupHint')}</p><div class="setting-actions"><button class="setting-action" data-action="backup-drive">${I('upload')}<span><strong>Back Up to Google Drive</strong><small>Keep a copy safely outside this device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore-drive">${I('download')}<span><strong>Restore from Google Drive</strong><small>Recover a shop on this or a new device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="backup">${I('download')}<span><strong>${T('backup')}</strong><small>Export full verified JSON archive</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore">${I('upload')}<span><strong>${T('restore')}</strong><small>Validate and atomically replace the data</small></span>${I('chevron','trailing')}</button><input id="restore-file" type="file" accept=".json,application/json" hidden></div><div class="muted-note" style="margin-top:18px">${I('alert')} ${T('restoreWarning')}</div></section><section class="setting-panel"><h2>${T('security')}</h2><p class="lead">${T('securityNote')}</p><div class="setting-actions"><button class="setting-action" data-action="change-pin">${I('lock')}<span><strong>${T('changePassword')}</strong><small>Current PIN required</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="persist-storage">${I('shield')}<span><strong>Request protected storage</strong><small>Ask browser not to evict local records</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="install">${I('mobile')}<span><strong>${T('install')}</strong><small>Make this an app on your device</small></span>${I('chevron','trailing')}</button></div></section><section class="setting-panel"><h2>Terms &amp; Privacy</h2><p>${legalLinks()}</p><p class="small-muted">${s.legalConsent?'Accepted version '+E(s.legalConsent.termsVersion)+' on '+E(new Date(s.legalConsent.acceptedAt).toLocaleString('en-IN')):'This shop predates consent recording; no acceptance has been assumed.'}</p><p>These documents should be reviewed by an Indian legal professional before commercial distribution.</p></section></div></div>`;}
+function modal(title,subtitle,body,footer='',wide=false,variant=''){state.modal=`<div class="overlay ${variant}" data-close-modal><div class="modal ${wide?'xl':''}" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>${title}</h2>${subtitle?`<p>${subtitle}</p>`:''}</div><button class="icon-button" data-action="close-modal" aria-label="Close">${I('close')}</button></div><div class="modal-body">${body}</div>${footer?`<div class="modal-footer">${footer}</div>`:''}</div></div>`;const h=$('#modal-host');if(h)h.innerHTML=state.modal;}
 function closeModal(){state.modal=null;const h=$('#modal-host');if(h)h.innerHTML='';}
+function showBackupOptions(){
+ const due=driveReminderDue();
+ modal('Backup','',`<div class="setting-actions">
+    <p class="small-muted" data-backup-status>${E(backupStatusLine())}</p>
+    ${due?'<p class="small-muted">A Google Drive backup is due today.</p>':''}
+    <button type="button" class="button primary" data-action="backup-drive">${I('upload')}Back up to Google Drive</button>
+    <button type="button" class="button" data-action="backup">${I('download')}Download backup</button>
+    <button type="button" class="button" data-action="backup-settings">${I('settings')}Backup settings</button>
+ </div>`,due?'<button type="button" class="button" data-action="dismiss-drive-reminder">Remind me tomorrow</button>':'');
+}
 function modalButtons(submitId,label=T('save')){return `<button class="button" data-action="close-modal">${T('cancel')}</button><button type="submit" class="button primary" form="${submitId}">${I('check')}${label}</button>`;}
 function showCustomerModal(c=null){const vehicles=c?state.data.vehicles.filter(v=>v.customerId===c.id):[];const orders=c?activeOrders().filter(o=>o.customerId===c.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)):[];const spend=orders.reduce((n,o)=>n+o.totals.grandPaise,0),due=orders.reduce((n,o)=>n+o.duePaise,0);
  const body=`${c?`<div class="customer-metrics"><div class="customer-metric"><small>${T('customerSpend')}</small><strong>${M(spend)}</strong></div><div class="customer-metric"><small>${T('customerDue')}</small><strong>${M(due)}</strong></div><div class="customer-metric"><small>${T('invoices')}</small><strong>${orders.length}</strong></div></div>`:''}<form id="customer-form" data-id="${c?.id||''}"><div class="field-grid"><div class="field"><label>${T('name')}</label><input name="name" value="${E(c?.name||'')}" placeholder="Customer name"></div><div class="field"><label>${T('phone')}</label><input name="phone" type="tel" value="${E(c?.phone||'')}" placeholder="Contact number"></div><div class="field field-spread"><label>${T('newVehicle')}</label><input name="vehicle" placeholder="MH 21 AB 1234" value="" /><small>${c?`Current vehicles: ${E(vehicles.map(v=>v.reg).join(', ')||'none')}`:'A new vehicle can be linked here, or when creating an invoice.'}</small></div><div class="field field-spread"><label>${T('notes')}</label><textarea name="notes">${E(c?.notes||'')}</textarea></div></div></form>${c&&orders.length?`<div class="separator"></div><div class="form-section-heading"><h3>${T('customerHistory')}</h3></div><div class="detail-list">${orders.slice(0,12).map(o=>`<button class="detail-row" style="border:0;border-bottom:1px solid var(--border);background:none;width:100%;text-align:left;cursor:pointer;color:var(--ink)" data-invoice="${o.id}"><span>${E(o.number)} · ${fmtDate(o.createdAt,true)}</span><strong>${M(o.totals.grandPaise)}</strong></button>`).join('')}</div>`:''}`;
@@ -338,7 +354,7 @@ function showStockModal(product=null,kind='purchase'){
   const mode=shopMode();
   if(!mode){nav('settings');$('#inventory-mode-form')?.scrollIntoView({block:'center'});return;}
   const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product)}</form>`;
-  modal(product?'Restock tyres':'Add purchased tyres','',body,modalButtons('purchase-form','Save purchase'));
+  modal(product?'Restock tyres':'Add purchased tyres','',body,modalButtons('purchase-form','Save purchase'),false,'purchase-dialog');
   if(!product)updatePurchaseFields($('#purchase-form'),mode,activeTyres());
   return;
  }
@@ -421,9 +437,11 @@ async function doAction(action,target){switch(action){
  case 'clear-customer':state.bill.selectedCustomerId=null;state.bill.customerQuery='';state.bill.customerName='';state.bill.customerPhone='';render();return;
  case 'choose-backup-folder':if(nativeAndroid()){window.TyreDeskAndroid.chooseBackupFolder();}else if(hostedPwa()){try{const status=await pwaBackups.chooseFolder();Object.assign(backupInfo,status);toast('Backup folder connected. Your first local backup will save automatically.');render();scheduleAutoBackup();}catch(e){if(e.name!=='AbortError')throw e;}}else toast('Automatic PC backups are configured by your local launcher.');return;
  case 'backup':await backup();return;
+ case 'backup-options':showBackupOptions();return;
+ case 'backup-settings':nav('settings');$('#backup-settings')?.scrollIntoView({block:'start'});return;
  case 'backup-drive':await backupToDrive();return;
  case 'restore-drive':restoreFromDrive();return;
- case 'dismiss-drive-reminder':reminderStore.setItem(driveReminderDismissKey,driveDay());render();return;
+ case 'dismiss-drive-reminder':reminderStore.setItem(driveReminderDismissKey,driveDay());closeModal();render();return;
  case 'restore':{const input=$('#restore-file');if(input){input.click();}else{nav('settings');setTimeout(()=>$('#restore-file')?.click(),50);}return;}
  case 'install':if(state.installPrompt){state.installPrompt.prompt();state.installPrompt=null;}else installationInfo();return;
  case 'change-pin':changePinModal();return;
@@ -566,6 +584,15 @@ document.addEventListener('input',event=>{
  if(target.dataset.lineField&&state.bill){const node=target.closest('[data-line]');const line=state.bill.lines.find(l=>l.key===node?.dataset.line);if(!line)return;const prop=target.dataset.lineField;switch(prop){case'name':line.name=target.value;break;case'qty':line.qty=Number(target.value);break;case'taxBps':line.taxBps=Math.round(Number(target.value)*100);break;case'unitPaise':line.unitPaise=toPaise(target.value);break;case'discountValue':line.discount.value=line.discount.type==='percent'?Math.round(Number(target.value)*100):toPaise(target.value);break;default:break;}updateBillTotals();return;}
 });
 document.addEventListener('change',async event=>{const el=event.target;try{
+ if(el.dataset.purchaseChoice){
+   const form=el.form,key=el.dataset.purchaseChoice,input=form.elements[key];
+   const manual=el.value==='__new__';
+   input.value=manual?'':el.value;
+   if(manual)input.dataset.manual='yes';else delete input.dataset.manual;
+   updatePurchaseFields(form,shopMode(),activeTyres(),key);
+   if(manual)input.focus();
+   return;
+ }
  if(el.closest('#tyre-bill-form')&&['brand','model','size','exact'].includes(el.name)){updateBillPicker(el.name);return;}
  if(el.id==='bill-service'){
    const service=state.data.catalog.find(p=>p.id===el.value&&p.type==='service');
@@ -614,13 +641,18 @@ if(window.visualViewport){
  window.visualViewport.addEventListener('resize',viewportChanged);
  window.visualViewport.addEventListener('scroll',viewportChanged);
  document.addEventListener('focusin',event=>{
-  if(!event.target.matches('input,textarea,select'))return;
+  if(!event.target.matches('input,textarea'))return;
   fullHeight=Math.max(fullHeight,window.visualViewport.height);
   setTimeout(()=>{
    viewportChanged();
    const target=event.target;
    if(target.isConnected&&document.activeElement===target){
-    target.scrollIntoView({block:'center',behavior:'smooth'});
+    const region=target.closest('.purchase-dialog .modal-body');
+    if(region){
+     const bounds=region.getBoundingClientRect(),field=target.getBoundingClientRect();
+     if(field.bottom>bounds.bottom-10)region.scrollTop+=field.bottom-bounds.bottom+10;
+     else if(field.top<bounds.top+10)region.scrollTop+=field.top-bounds.top-10;
+    }else target.scrollIntoView({block:'center',behavior:'smooth'});
    }
   },210);
  });

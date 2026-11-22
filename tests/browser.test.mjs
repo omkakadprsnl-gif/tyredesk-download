@@ -24,8 +24,17 @@ try{
  await page.locator('#setup-form button[type=submit]').click();assert.equal((await read()).settings,undefined);
  await page.locator('[name=inventoryMode][value=simple]').check();
  await page.locator('[name=legalConsent]').check();await page.locator('#setup-form button[type=submit]').click();await page.waitForSelector('.shell');assert.equal((await read()).settings.legalConsent.termsVersion,'2026-11-21.2');
+ const homeActions=page.locator('.dash-home-tools > button');
+ assert.equal(await homeActions.count(),2);
+ assert.match(await homeActions.first().textContent(),/Add reminder/i);
+ await page.getByRole('button',{name:/^Backup( Backup needs attention)?$/i}).click();
+ await page.getByRole('button',{name:'Back up to Google Drive',exact:true}).filter({visible:true}).last().waitFor();
+ await page.getByRole('button',{name:'Download backup',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Backup settings',exact:true}).click();
+ await page.waitForSelector('#backup-settings');
+ await nav('dashboard');
  // Create, edit and complete a reminder through the UI.
- await page.locator('[data-action=add-reminder]').click();await page.locator('#reminder-form [name=title]').fill('Call supplier');await page.locator('#reminder-form [name=notes]').fill('Check delivery');await page.locator('#reminder-form [name=due]').fill('2020-01-01T10:30');await page.locator('[form=reminder-form]').click();await page.waitForSelector('.reminder-bell.is-alert');
+ await page.locator('[data-action=add-reminder]').click();await page.locator('#reminder-form [name=title]').fill('Call supplier');await page.locator('#reminder-form [name=notes]').fill('Check delivery');await page.locator('#reminder-form [name=due]').fill('2020-01-01T10:30');await page.locator('[form=reminder-form]').click();await page.waitForSelector('.reminder-bell.is-alert');await page.locator('.home-reminder-summary.is-due').getByText('Call supplier',{exact:false}).waitFor();
  await nav('reminders');await page.locator('[data-action=edit-reminder]').click();await page.locator('#reminder-form [name=title]').fill('Call supplier today');await page.locator('[form=reminder-form]').click();await page.waitForFunction(()=>document.querySelector('.reminder-row-info strong')?.textContent==='Call supplier today');await page.locator('[data-action=complete-reminder]').click();await page.waitForFunction(()=>!document.querySelector('.reminder-row'));assert.equal((await read()).reminders.length,0);
  // Seed an unpaid bill through the same DB API, then exercise the QR UI.
  const id=await page.evaluate(async()=>{const db=await import('./src/db.mjs');return (await db.completeOrder({customerName:'Customer',items:[{name:'Alignment',qty:1,type:'service',unitPaise:100000}],paidPaise:0})).id;});

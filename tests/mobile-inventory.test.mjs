@@ -6,7 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 
 const app=new URL('../docs/app/',import.meta.url);
-let released='1.3.1';
+let released='1.3.2';
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://local');
  if(url.pathname==='/release.json'){
@@ -60,19 +60,35 @@ try{
   if(!process.env.TYREDESK_TEST_URL){
    await page.getByText('You’re using the latest version.',{exact:true}).waitFor();
    if(width===320){
-    released='1.3.2';await page.getByRole('button',{name:'Check for updates'}).click();
+    released='1.3.3';await page.getByRole('button',{name:'Check for updates'}).click();
     await page.getByText('Update Available',{exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:/later|dismiss/i}).count(),0);
     await nav('billing');await page.getByText('Update Available',{exact:true}).waitFor();
-    released='1.3.1';
+    released='1.3.2';
    }
   }
   await nav('inventory');await page.locator('[data-action=buy-tyres]').click();await fits('Add stock dialog at '+width);
-  await page.locator('#purchase-form [name=brand]').fill('MRF');
-  assert.deepEqual(await page.locator('#buy-list-model option').evaluateAll(items=>items.map(o=>o.value)),['ZLX','ZVTV']);
-  await page.locator('#purchase-form [name=model]').fill('ZLX');
-  assert.deepEqual(await page.locator('#buy-list-size option').evaluateAll(items=>items.map(o=>o.value)),['145/80 R12','165/80 R14']);
-  await page.locator('#purchase-form [name=size]').fill('145/80 R12');
+  const choice=key=>page.locator('[data-purchase-choice='+key+']');
+  assert.ok((await choice('brand').locator('option').allTextContents()).includes('Add a new brand'));
+  await choice('brand').selectOption('__new__');
+  await page.locator('#purchase-form [name=brand]').fill('Another brand');
+  await page.locator('[name=model]').filter({visible:true}).first().waitFor();
+  if(width<=390){
+   await page.setViewportSize({width,height:470});
+   await page.waitForFunction(()=>document.documentElement.classList.contains('keyboard-open'));
+   const layout=await page.locator('.purchase-dialog').evaluate(overlay=>({
+    body:overlay.querySelector('.modal-body').getBoundingClientRect().height,
+    footer:overlay.querySelector('.modal-footer').getBoundingClientRect().bottom,
+    modal:overlay.querySelector('.modal').getBoundingClientRect().bottom
+   }));
+   assert.ok(layout.body>220&&Math.abs(layout.footer-layout.modal)<3,JSON.stringify(layout));
+   await page.setViewportSize({width,height:820});
+  }
+  await choice('brand').selectOption('MRF');
+  assert.deepEqual(await choice('model').locator('option').allTextContents(),['Choose model','ZLX','ZVTV','Add a new model']);
+  await choice('model').selectOption('ZLX');
+  assert.deepEqual(await choice('size').locator('option').allTextContents(),['Choose size','145/80 R12','165/80 R14','Add a new size']);
+  await choice('size').selectOption('145/80 R12');
   await page.locator('#purchase-form [name=qty]').fill('2');
   await page.locator('[form=purchase-form]').click();await page.waitForFunction(()=>!document.querySelector('#purchase-form'));
   await page.locator('[data-restock]').first().click();await fits('Restock at '+width);

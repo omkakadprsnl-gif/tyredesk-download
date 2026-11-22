@@ -133,9 +133,27 @@ export function createPwaBackupManager({
     const key=await subtle.digest('SHA-256',textEncoder.encode(shop.createdAt));
     const directory='Shop-'+[...new Uint8Array(key)].slice(0,12).map(x=>x.toString(16).padStart(2,'0')).join('');
     try{
+      const timestamp=currentDate();
+      const day=dateStamp(timestamp);
+      const savedKey='saved:'+directory;
+      const report=async savedAt=>{
+        await store.set(savedKey,savedAt);
+        await store.set('lastSaved',savedAt);
+        lastSaved=savedAt;lastError='';
+        return {enabled:true,lastSaved,folder:displayFolder(),error:'',needsPermission:false};
+      };
+      const alreadySaved=await store.get(savedKey);
+      if(alreadySaved&&dateStamp(new Date(alreadySaved))===day)return report(alreadySaved);
       const root=await targetDirectory();
       const dir=await root.getDirectoryHandle(directory,{create:true});
-      const name=`TyreDesk-auto-${dateStamp(currentDate())}.json`;
+      const name=`TyreDesk-auto-${day}.json`;
+      let existing;
+      try{
+        const file=await (await dir.getFileHandle(name)).getFile();
+        const verified=await verifyTyreDeskBackup(await file.text(),subtle);
+        if(verified.payload.data.settings[0]?.createdAt===shop.createdAt)existing=file;
+      }catch{}
+      if(existing)return report(new Date(existing.lastModified||timestamp).toISOString());
       const handle=await dir.getFileHandle(name,{create:true});
       const writer=await handle.createWritable();
       try{await writer.write(json);await writer.close();}
@@ -143,7 +161,7 @@ export function createPwaBackupManager({
       // A write is successful only after reading back the complete data.
       const saved=await (await handle.getFile()).text();
       if(saved!==json)throw Error('Backup verification failed after writing the file.');
-      const month=dateStamp(currentDate()).slice(0,7);
+      const month=day.slice(0,7);
       const rotationKey='rotation:'+directory;
       if (await store.get(rotationKey)!==month){
         const names=[];
@@ -161,9 +179,7 @@ export function createPwaBackupManager({
           }
         }
       }
-      lastSaved=currentDate().toISOString();lastError='';
-      await store.set('lastSaved',lastSaved);
-      return {enabled:true,lastSaved,folder:displayFolder(),error:'',needsPermission:false};
+      return report(timestamp.toISOString());
     }catch(error){lastError=error.message;throw error;}
   }
   return {getStatus,chooseFolder,saveBackup};

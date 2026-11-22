@@ -406,14 +406,6 @@ body[data-theme='dark']{--bg:#161b19;--panel:#222a26;--surface:#2d3631;--ink:#e8
 }
 
 /* Off-device backup reminder is separate from automatic local backups. */
-.drive-reminder{display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-bottom:16px;padding:16px 18px;background:#f4f8ef;border:1px solid #bfd6b7;border-radius:17px;color:#203b2c}
-.drive-reminder-icon{flex:0 0 34px}
-.drive-reminder-icon svg{width:24px;height:24px}
-.drive-reminder>div{flex:1 1 235px}
-.drive-reminder strong{display:block;font-size:14px}
-.drive-reminder p{margin:4px 0 0;font-size:12px;line-height:1.5;color:#45614c}
-.drive-reminder .button{white-space:nowrap}
-@media(max-width:530px){.drive-reminder{padding:14px;gap:9px}.drive-reminder>div{flex:1 1 calc(100% - 48px)}.drive-reminder .button{flex:1 1 auto}}
 
 
 /* Personal reminders — attention states stay prominent without cluttering the dashboard. */
@@ -422,22 +414,8 @@ body[data-theme='dark']{--bg:#161b19;--panel:#222a26;--surface:#2d3631;--ink:#e8
 .reminder-bell.is-alert{background:#fff0ef;color:#c52f35;border-color:#f3c5c7}
 .reminder-bell-count{position:absolute;right:-8px;top:-8px;min-width:20px;height:20px;border-radius:12px;background:#d52f38;color:#fff;border:2px solid var(--panel);display:grid;place-items:center;padding:0 3px;font-size:10px;font-weight:850;line-height:1}
 .reminder-nav-count{margin-left:auto;background:#c9363d;color:#fff;border-radius:12px;font-size:10px;padding:2px 6px}
-.reminders-dashboard{border:1px solid var(--border);border-radius:18px;background:var(--panel);padding:23px 25px;margin-bottom:20px;box-shadow:var(--shadow)}
-.reminders-dashboard.reminders-attention{background:#fff9f8;border-color:#e9b1af;box-shadow:0 5px 18px rgba(166,52,52,.07)}
-.reminders-dashboard-head{display:flex;align-items:center;gap:17px;min-width:0}
-.reminders-dashboard-symbol{position:relative;display:grid;place-items:center;width:46px;height:46px;border-radius:14px;background:var(--surface);color:var(--ink);flex-shrink:0}
-.reminders-attention .reminders-dashboard-symbol{background:#ffebeb;color:#c72e36}
-.reminders-dashboard-symbol svg{width:23px;height:23px}
-.reminder-red-dot{position:absolute;right:9px;top:8px;background:#d52f38;width:9px;height:9px;border:2px solid #ffebeb;border-radius:50%}
-.reminders-dashboard-head>div{min-width:0;flex:1}
-.reminders-dashboard-head h2{font-size:19px;letter-spacing:-.55px;margin:0;color:var(--ink);font-weight:850}
-.reminders-attention .reminders-dashboard-head h2{color:#ad2933}
-.reminders-dashboard-head p{font-size:12px;margin:5px 0 0;color:var(--muted);line-height:1.55}
-.reminders-dashboard-head>.button{flex-shrink:0}
-.reminders-dashboard-list{margin-top:18px;border-top:1px solid var(--border);padding-top:4px}
 .reminder-row{display:flex;align-items:flex-start;gap:12px;padding:17px 20px;border-bottom:1px solid var(--border);min-width:0}
 .reminder-row:last-child{border-bottom:0}
-.reminder-row.compact{padding:13px 2px}
 .reminder-row-icon{width:35px;height:35px;border-radius:10px;display:grid;place-items:center;background:var(--surface);color:var(--muted);flex-shrink:0}
 .reminder-row.is-due .reminder-row-icon{background:#ffebeb;color:#b92d34}
 .reminder-row-icon svg{width:17px;height:17px}
@@ -450,8 +428,6 @@ body[data-theme='dark']{--bg:#161b19;--panel:#222a26;--surface:#2d3631;--ink:#e8
 .reminder-row-actions{display:flex;gap:7px;flex-shrink:0;align-items:center}
 .reminder-row-actions .button{padding:9px 11px;font-size:11px}
 .button.reminder-complete{color:#286e4c;background:#edf8ef;border-color:#bfe3c9}
-.reminders-view-all{border:0;background:transparent;color:var(--ink);font-size:12px;display:inline-flex;align-items:center;gap:8px;padding:13px 0 0;font-weight:800;cursor:pointer}
-.reminders-view-all svg{width:15px;height:15px}
 .reminders-page{display:flex;flex-direction:column;gap:22px}
 .reminders-list-heading{padding:18px 20px 12px;display:flex;align-items:center;gap:10px}
 .reminders-list-heading h3{font-size:16px;margin:0}
@@ -460,13 +436,7 @@ body[data-theme='dark']{--bg:#161b19;--panel:#222a26;--surface:#2d3631;--ink:#e8
 .reminder-form-hint{font-size:11px;color:var(--muted);line-height:1.6;margin:15px 0 0}
 @media(max-width:720px){
  .reminder-bell{height:36px;width:36px;border-radius:10px}
- .reminders-dashboard{padding:16px;margin-bottom:16px}
- .reminders-dashboard-head{gap:10px;flex-wrap:wrap}
- .reminders-dashboard-symbol{height:40px;width:40px}
- .reminders-dashboard-head h2{font-size:17px}
- .reminders-dashboard-head>.button{width:100%;min-height:40px}
  .reminder-row{flex-wrap:wrap;padding:14px}
- .reminder-row.compact{padding:12px 0}
  .reminder-row-actions{width:100%;justify-content:flex-end}
  .reminder-row-actions .button{min-height:38px}
  .reminder-row-info{flex-basis:calc(100% - 50px)}
@@ -549,4 +519,33 @@ body[data-theme='dark']{--bg:#161b19;--panel:#222a26;--surface:#2d3631;--ink:#e8
  .setup-showcase .showcase-logo{gap:11px;font-size:19px}
  .setup-showcase .brand-mark{width:40px;height:40px}
  .setup-form-area .update-banner{margin:10px 16px 0}
+}
+.dash-home-tools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 13px}
+.dash-home-tools>.button{min-height:42px;padding:7px 13px;white-space:normal}
+.backup-attention-dot{width:7px;height:7px;background:#b16c15;border-radius:50%;flex-shrink:0}
+.home-reminder-summary{display:flex;align-items:center;gap:7px;margin:0 0 14px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.home-reminder-summary svg{width:15px;height:15px}
+.home-reminder-summary.is-due{color:var(--danger,#b33440)}
+#backup-settings{scroll-margin-top:90px}
+@media(max-width:420px){
+ .dash-home-tools>.button{min-width:0;flex:1 1 0;justify-content:center}
+}
+.purchase-identity input:not([hidden]):not(:first-child){margin-top:2px}
+@media(max-width:720px){
+ .overlay.purchase-dialog,
+ html.keyboard-open .overlay.purchase-dialog{
+  height:min(100dvh,var(--visible-screen-height,100dvh));
+  bottom:auto;padding:6px 8px!important;align-items:stretch!important
+ }
+ .overlay.purchase-dialog>.modal,
+ html.keyboard-open .overlay.purchase-dialog>.modal{
+  display:grid;grid-template-rows:auto minmax(0,1fr) auto;height:100%;max-height:100%!important;
+  min-height:0;border-radius:12px;overflow:hidden
+ }
+ .purchase-dialog .modal-head{padding:12px 14px}
+ .purchase-dialog .modal-body{padding:12px 14px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+ .purchase-dialog #purchase-form .field-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+ .purchase-dialog #purchase-form .field{grid-column:1/-1}
+ .purchase-dialog #purchase-form .purchase-cost,.purchase-dialog #purchase-form .purchase-price{grid-column:auto}
+ .purchase-dialog .modal-footer{padding:8px 12px 10px;max-height:none}
 }

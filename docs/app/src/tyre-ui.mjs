@@ -19,15 +19,16 @@ export function modeChoices(current='', locked=false) {
 }
 
 export function purchaseFields(mode, product) {
-  const fields=dimensions(mode).map(key=>`<label class="field">${label(key)}
-    <input required name="${key}" maxlength="90" list="buy-list-${key}" value="${E(product?.[key]||'')}" autocomplete="off">
-    <datalist id="buy-list-${key}"></datalist>
-  </label>`).join('');
+  const fields=dimensions(mode).map(key=>`<div class="field purchase-identity" data-purchase-dimension="${key}">
+    <label for="buy-${key}">${label(key)}</label>
+    <select id="buy-${key}" data-purchase-choice="${key}" aria-label="${label(key)}"></select>
+    <input name="${key}" maxlength="90" aria-label="New ${key}" placeholder="Enter ${key}" autocomplete="off">
+  </div>`).join('');
   return `<div class="field-grid tyre-fields">
     ${product?`<p class="field-spread"><strong>${E(tyreName(product,mode))}</strong> · Current stock <strong>${product.stockQty||0}</strong></p>`:fields}
     <label class="field">How many tyres did you buy?<input name="qty" type="number" min="1" step="1" value="1" required></label>
-    <label class="field">Purchase price per tyre (₹)<input name="cost" type="number" min="0" step="0.01" value="${product?formatted(product.costPaise):''}" required></label>
-    <label class="field">Selling price per tyre (₹)<input name="price" type="number" min="0" step="0.01" value="${product?formatted(product.pricePaise):''}" required></label>
+    <label class="field purchase-cost">Purchase price per tyre (₹)<input name="cost" type="number" min="0" step="0.01" value="${product?formatted(product.costPaise):''}" required></label>
+    <label class="field purchase-price">Selling price per tyre (₹)<input name="price" type="number" min="0" step="0.01" value="${product?formatted(product.pricePaise):''}" required></label>
     <label class="field">Supplier (optional)<input name="supplier" maxlength="150"></label>
     <label class="field field-spread">Supplier invoice reference (optional)<input name="reference" maxlength="80"></label>
     ${product?'':'<p class="small-muted field-spread" data-purchase-match></p>'}
@@ -39,10 +40,24 @@ export function updatePurchaseFields(form, mode, tyres, changed='') {
   for(const key of dimensions(mode)){
     const input=form.elements.namedItem(key);
     if(!input)return;
-    if((changed==='brand'&&key!=='brand')||(changed==='model'&&key==='size'))input.value='';
-    form.querySelector('#buy-list-'+key).innerHTML=options(tyres.map(p=>p[key])).map(v=>`<option value="${E(v)}"></option>`).join('');
-    entries[key]=input.value;
-    tyres=filterBy(tyres,key,input.value);
+    if((changed==='brand'&&key!=='brand')||(changed==='model'&&key==='size')){
+      input.value='';delete input.dataset.manual;
+    }
+    const ready=key==='brand'||(key==='model'&&!!entries.brand)||(key==='size'&&!!entries.model);
+    const group=form.querySelector('[data-purchase-dimension="'+key+'"]');
+    const select=group.querySelector('select');
+    const saved=options(tyres.map(p=>p[key]));
+    const match=saved.find(value=>tyreKey(value)===tyreKey(input.value));
+    const manual=input.dataset.manual==='yes'||!!input.value&&!match||!saved.length;
+    group.hidden=!ready;
+    select.hidden=!saved.length;select.disabled=!ready||select.hidden;select.required=!select.disabled;
+    select.replaceChildren(new Option('Choose '+key,''),...saved.map(value=>new Option(value,value)),new Option('Add a new '+key,'__new__'));
+    select.value=manual&&saved.length?'__new__':(match||'');
+    input.hidden=!manual;input.disabled=!ready;input.required=ready&&manual;
+    group.querySelector('label').htmlFor=select.hidden?'buy-'+key+'-manual':'buy-'+key;
+    input.id='buy-'+key+'-manual';
+    entries[key]=ready?input.value:'';
+    tyres=filterBy(tyres,key,entries[key]);
   }
   const identity=tyreIdentity(mode,entries);
   const match=identity && tyres.find(p=>tyreIdentity(mode,p)===identity);
