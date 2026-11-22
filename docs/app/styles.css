@@ -578,3 +578,7 @@ body[data-theme='dark']{--bg:#161b19;--panel:#222a26;--surface:#2d3631;--ink:#e8
   gap: .5rem;
   margin: .5rem 0;
 }
+
+.legal-dialog{box-sizing:border-box;width:min(calc(100% - 24px),860px);height:calc(100% - 24px);height:calc(100dvh - 24px);max-width:none;max-height:none;padding:0;border:0;border-radius:14px;background:#fafbf8;overflow:hidden}
+.legal-dialog::backdrop{background:rgb(23 29 27 / .66)}
+.legal-dialog iframe{display:block;width:100%;height:100%;border:0}

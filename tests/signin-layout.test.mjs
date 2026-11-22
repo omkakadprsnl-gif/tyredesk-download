@@ -70,6 +70,24 @@ try{
     if(width===360){
       await page.getByRole('button',{name:'Open Download Page'}).click();
       assert.equal(await page.evaluate(()=>window.pilotUpdatePageOpens),1);
+      await page.locator('[name=username]').fill('draft-shop');
+      await page.locator('[name=password]').fill('draft-password');
+      for(const {link,heading,removed} of [
+        {link:'Terms & Conditions',heading:'TyreDesk Terms & Conditions',removed:'Contact and review'},
+        {link:'Privacy Policy',heading:'TyreDesk Privacy Policy',removed:'Contact and legal review'}
+      ]){
+        await page.getByRole('link',{name:link,exact:true}).click();
+        const document=page.frameLocator('.legal-dialog iframe');
+        await document.getByRole('heading',{name:heading,exact:true}).waitFor();
+        assert.equal(await document.getByRole('heading',{name:removed,exact:true}).count(),0);
+        assert.equal(await document.getByText('public TyreDesk issue tracker').count(),0);
+        assert.equal(await document.getByRole('link',{name:'tyredeskofficial@gmail.com'}).getAttribute('href'),
+          'mailto:tyredeskofficial@gmail.com');
+        await document.getByRole('link',{name:/Back/}).click();
+        await page.locator('.legal-dialog').waitFor({state:'detached'});
+        assert.equal(await page.locator('[name=username]').inputValue(),'draft-shop');
+        assert.equal(await page.locator('[name=password]').inputValue(),'draft-password');
+      }
     }
     if(width<=390){
       await page.setViewportSize({width,height:480});
@@ -103,6 +121,11 @@ try{
   await pin.page.locator('#device-pin-form').waitFor();
   await fits(pin.page,true,'Device PIN with an update');
   await pin.context.close();
+  const standalone=await browser.newPage();
+  await standalone.goto(url+'/privacy.html');
+  await standalone.getByRole('link',{name:/Back/}).click();
+  await standalone.waitForURL(url+'/');
+  await standalone.close();
   console.log('PASS: stacked sign-in, setup, retry and PIN at mobile and desktop widths; Android update action and keyboard-height controls');
 }finally{
   await browser.close();

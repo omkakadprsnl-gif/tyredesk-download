@@ -5,7 +5,7 @@ import {loginCloud,firstRunStep,restoreAccount,finishFirstSetup,logoutCloud,clou
 import {getDatabase,saveReceivedDraft,receivedDraft, getSetting,saveSetting,saveReminder,completeReminder,summaryData,invoiceDetails,customerDetails,upsertCustomer,setVehicle,addCatalogItem,adjustStock,buyTyres,setInventoryMode,completeOrder,editOrder,addPayment,recordRefund,cancelOrder,addExpense,exportBackup,packAndroidBackup,restoreBackup,searchCustomers,all,addAudit} from './db.mjs';
 import {uid,escapeHTML,toPaise,fromPaise,formatMoney,todayISO,monthISO,normalizePhone,normalizeVehicle,toCSV,fileSafeName,calculateBill,estimateProfit} from './logic.mjs';
 import {t} from './i18n.mjs';
-import {legalLinks,consentRecord} from './legal.mjs';
+import {legalLinks,consentRecord,openLegalPage} from './legal.mjs';
 import {invoiceInner,completeInvoiceHtml} from './invoice.mjs';
 import {formatWhatsAppBill,whatsappBillUrl,whatsappRecipient,whatsappReminderUrl} from './whatsapp.mjs';
 import {createPwaBackupManager} from './pwa-backup.mjs';
@@ -611,6 +611,7 @@ async function runForm(form){const f=new FormData(form);const v=k=>String(f.get(
  if(form.id==='refund-form'){if(!f.get('confirmed'))throw Error('Confirm that you have already refunded the payment.');const id=form.dataset.id,money=toPaise(v('amount'));await recordRefund(id,money,v('method'),v('reference'));await refresh();showInvoiceModal(id);toast('Refund recorded in the ledger.');return;}
  if(form.id==='pin-form'){const s=state.data.settings;if(await hashPin(v('oldPin'),s.pinSalt)!==s.pinHash)throw Error('Current PIN is incorrect');if(!/^\d{4,12}$/.test(v('newPin')))throw Error('Use a 4–12 digit PIN');if(v('newPin')!==v('confirmPin'))throw Error('New PINs do not match');const saltHex=salt(),pinHash=await hashPin(v('newPin'),saltHex);await saveSetting({...s,pinHash,pinSalt:saltHex});await addAudit('owner-pin-changed');await refresh();closeModal();toast(T('saveChanges'));return;}
 }
+document.addEventListener('click',openLegalPage);
 document.addEventListener('click',async event=>{
  try{
   if(event.target.matches('[data-close-modal]')){closeModal();return;}
