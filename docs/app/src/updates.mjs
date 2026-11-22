@@ -1,4 +1,4 @@
-export const WEB_VERSION='1.3.2';
+export const WEB_VERSION='1.3.3';
 
 function newerVersion(candidate,current){
   if(!/^\d+\.\d+\.\d+$/.test(candidate))return false;
@@ -20,9 +20,12 @@ export function initUpdates(){
   });
   window.addEventListener('online',checkUpdates);
   window.addEventListener('pageshow',checkUpdates);
-  window.addEventListener('focus',()=>{
-    if(state.phase==='available'||state.phase==='error')void checkUpdates();
-  });
+  const checkWhileOpen=()=>{
+    if(document.visibilityState==='visible')void checkUpdates();
+  };
+  window.addEventListener('focus',checkWhileOpen);
+  document.addEventListener('visibilitychange',checkWhileOpen);
+  setInterval(checkWhileOpen,5*60*1000);
   void checkUpdates();
 }
 

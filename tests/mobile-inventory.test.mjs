@@ -6,7 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 
 const app=new URL('../docs/app/',import.meta.url);
-let released='1.3.2';
+let released='1.3.3';
 const server=http.createServer(async(req,res)=>{
  const url=new URL(req.url,'http://local');
  if(url.pathname==='/release.json'){
@@ -60,11 +60,11 @@ try{
   if(!process.env.TYREDESK_TEST_URL){
    await page.getByText('You’re using the latest version.',{exact:true}).waitFor();
    if(width===320){
-    released='1.3.3';await page.getByRole('button',{name:'Check for updates'}).click();
+    released='1.3.4';await page.getByRole('button',{name:'Check for updates'}).click();
     await page.getByText('Update Available',{exact:true}).waitFor();
     assert.equal(await page.getByRole('button',{name:/later|dismiss/i}).count(),0);
     await nav('billing');await page.getByText('Update Available',{exact:true}).waitFor();
-    released='1.3.2';
+    released='1.3.3';
    }
   }
   await nav('inventory');await page.locator('[data-action=buy-tyres]').click();await fits('Add stock dialog at '+width);

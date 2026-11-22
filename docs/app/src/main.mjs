@@ -735,11 +735,14 @@ function draftQr(calc){
  return note+`<section class="payment-qr-display draft-qr" aria-label="Scan to pay"><h3>${title}</h3><img src="${E(qr)}" alt="Shop payment QR"><p>${due?'Enter '+due+' in your UPI app.':'Add a priced item to calculate the amount due.'}</p>${due?'<button type="button" class="button" data-action="draft-payment">Payment received</button>':''}</section>`;
 }
 
+function androidUpdateNote(){
+ return nativeAndroid()?`<p class="small-muted update-android-note">TyreDesk comes from our signed download site. Google Play Protect checks apps from outside Google Play. If it blocks the update as harmful, keep Play Protect enabled and use TyreDesk in your browser.</p>`:'';
+}
 function updateActions(){
  const update=updateStatus();
  const busy=['checking','installing'].includes(update.phase);
  return `<p role="status">${E(update.message)}</p><button type="button" class="button" data-action="check-updates" ${busy?'disabled':''}>Check for updates</button>
- ${['available','retry'].includes(update.phase)?'<button type="button" class="button primary" data-action="install-update">Update Now</button>':''}`;
+ ${['available','retry'].includes(update.phase)?'<button type="button" class="button primary" data-action="install-update">Update Now</button>'+androidUpdateNote():''}`;
 }
 function updatePanel(){
  return `<section class="setting-panel"><h2>Update App</h2><div data-update-settings>${updateActions()}</div></section>`;
@@ -747,7 +750,7 @@ function updatePanel(){
 function updateBanner(){
  const update=updateStatus();
  if(!['available','retry','installing'].includes(update.phase))return '';
- return `<section class="report-banner update-banner"><div><strong>Update Available</strong><p role="status">${E(update.message)}</p></div>
+ return `<section class="report-banner update-banner"><div><strong>Update Available</strong><p role="status">${E(update.message)}</p>${update.phase==='installing'?'':androidUpdateNote()}</div>
  ${update.phase==='installing'?'':'<button type="button" class="button primary" data-action="install-update">Update Now</button>'}</section>`;
 }
 window.addEventListener('tyredesk-update',()=>{
