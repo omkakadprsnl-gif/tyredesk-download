@@ -109,7 +109,7 @@ export function estimateProfit(orders=[], expenses=[]) {
     const lines=order.items||[];
     revenuePaise+=Number(order.totals?.taxablePaise ?? lines.reduce((n,l)=>n+Number(l.taxablePaise ?? (l.totalPaise||0)-(l.taxPaise||0)),0));
     for(const line of lines){
-      if(line.type!=='tyre')continue;
+      if(line.type!=='tyre'&&line.type!=='product')continue;
       if(Number.isSafeInteger(line.unitCostPaise)&&line.unitCostPaise>=0){
         tyreCostPaise+=line.qty*line.unitCostPaise;
       } else missingCostLines++;

@@ -1,3 +1,4 @@
+import {isStockProduct} from './tyres.mjs';
 import {compactInvoiceLines} from './invoice-storage.mjs';
 import {calculateBill,calculateDue,uid} from './logic.mjs';
 
@@ -29,7 +30,7 @@ export async function prepareInvoiceEdit({tx,request,orderId,editToken,expectedE
     if(!line.catalogId)continue;
     const product=await request(catalog.get(line.catalogId));
     if(!product)throw Error('A price-list item was removed.');
-    if(product.type!=='tyre')continue;
+    if(!isStockProduct(product))continue;
     products.set(product.id,product);
     const previousLine=prior.items.find(l=>l.catalogId===product.id&&Number.isSafeInteger(l.unitCostPaise));
     line.unitCostPaise=previousLine?.unitCostPaise??product.costPaise??0;
@@ -40,7 +41,7 @@ export async function prepareInvoiceEdit({tx,request,orderId,editToken,expectedE
     const delta=(before.get(id)||0)-(after.get(id)||0);
     if(!delta)continue;
     const product=products.get(id)||await request(catalog.get(id));
-    if(!product||product.type!=='tyre')throw Error('The original tyre stock entry could not be found.');
+    if(!isStockProduct(product))throw Error('The original stock entry could not be found.');
     const balanceAfter=product.stockQty+delta;
     if(!Number.isSafeInteger(balanceAfter)||balanceAfter<0)throw Error('Insufficient stock for '+product.name);
     await request(catalog.put({...product,stockQty:balanceAfter,updatedAt:timestamp}));

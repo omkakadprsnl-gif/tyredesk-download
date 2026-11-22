@@ -1,6 +1,6 @@
 import {compactInvoiceLines} from './invoice-storage.mjs';
 import {prepareInvoiceEdit,trackedQuantities} from './stock-edit.mjs';
-import { inventoryMode, tyreIdentity, tyreName, tyreText } from './tyres.mjs';
+import { inventoryCategories, productCategory, isStockProduct, inventoryMode, tyreIdentity, tyreName, tyreText } from './tyres.mjs';
 import {uid, normalizePhone, normalizeVehicle, safeText, calculateBill, calculateDue, todayISO} from './logic.mjs';
 import {SYNC_STORES,rowKey,cloudRecord,changes} from './cloud-merge.mjs';
 
@@ -50,7 +50,7 @@ export function getDatabase(){
           const cursor=e.target.result;
           if(!cursor)return;
           const item=cursor.value;
-          const required=item.type==='tyre';
+          const required=isStockProduct(item);
           if(item.trackStock!==required){
             item.trackStock=required;
             if(required && !Number.isSafeInteger(item.stockQty))item.stockQty=0;
@@ -173,7 +173,38 @@ export async function setInventoryMode(mode) {
   });
 }
 
-export async function buyTyres({mode,brand,model,size,existingId,qty,costPaise,pricePaise,supplier='',reference='',purchaseId=uid()}) {
+export async function saveInventoryCategory(id,name,fields){
+  name=tyreText(name);
+  if(!name||name.length>60)throw Error('Enter a category name up to 60 characters.');
+  return transact(['settings'],'readwrite',async tx=>{
+    const store=tx.objectStore('settings'),shop=await request(store.get('shop'));
+    if(!shop)throw Error('Complete shop setup first.');
+    const categories=inventoryCategories(shop),previous=categories.find(category=>category.id===id);
+    if(id&&!previous)throw Error('This category is no longer available.');
+    if(id==='tyres')name='Tyres';
+    if(categories.some(category=>category.id!==id&&tyreText(category.name).toLowerCase()===name.toLowerCase()))
+      throw Error('This category already exists.');
+    const names=fields.map(tyreText);
+    if(names.slice(0,previous?.fields.length||0).some(label=>!label))throw Error('Existing fields must keep a name.');
+    const labels=names.filter(Boolean);
+    if(labels.length>12||labels.some(label=>label.length>60)||new Set(labels.map(label=>label.toLowerCase())).size!==labels.length)
+      throw Error('Use up to 12 distinct field names, each up to 60 characters.');
+    if(labels.length<(previous?.fields.length||0))throw Error('Existing fields must keep a name.');
+    const next={id:id||uid(),name,fields:labels.map((label,index)=>({id:previous?.fields[index]?.id||uid(),label}))};
+    const saved=(shop.inventoryCategories||[]).filter(category=>category.id!==next.id);
+    await request(store.put({...shop,inventoryCategories:[...saved,next],updatedAt:new Date().toISOString()}));
+    return next;
+  });
+}
+
+function inventoryAttributes(shop,item,values){
+  const category=productCategory(shop,item);
+  if(item.type==='product'&&(!category||category.id==='tyres'))throw Error('Choose a product category.');
+  if(values==null)return item.attributes||{};
+  return Object.fromEntries((category?.fields||[]).map(field=>[field.id,tyreText(values[field.id]).slice(0,160)]).filter(([,value])=>value));
+}
+
+export async function buyTyres({mode,brand,model,size,existingId,qty,costPaise,pricePaise,supplier='',reference='',purchaseId=uid(),attributes}) {
   const identity=tyreIdentity(mode,{brand,model,size});
   if(!identity&&!existingId)throw Error(mode==='detailed'?'Enter a brand, model and size.':'Enter a brand.');
   qty=stockInt(qty,'Quantity');
@@ -202,7 +233,8 @@ export async function buyTyres({mode,brand,model,size,existingId,qty,costPaise,p
     const next=stockInt((product.stockQty||0)+qty,'Stock');
     const name=tyreName(product,mode);
     await request(catalog.put({...product,stockQty:next,pricePaise,costPaise,updatedAt:now,
-      supplier:safeText(supplier)||product.supplier||''}));
+      supplier:safeText(supplier)||product.supplier||'',
+      ...(attributes===undefined?{}:{attributes:{...product.attributes,...inventoryAttributes(shop,product,attributes)}})}));
     const purchase={id:purchaseId,productId:product.id,productName:name,qty,costPaise,pricePaise,
       supplier:safeText(supplier),reference:safeText(reference),createdAt:now};
     await request(purchases.add(purchase));
@@ -218,19 +250,25 @@ export async function addCatalogItem(input){
   if(!Number.isSafeInteger(cost)||cost<0)throw Error('Invalid purchase cost');
   if(!Number.isInteger(rate)||rate<0||rate>10000)throw Error('Invalid tax rate');
   const name=safeText(input.name);if(!name)throw Error('Enter an item name');
-  return transact(['catalog','inventoryMovements','audit'],'readwrite',async tx=>{
+  return transact(['settings','catalog','inventoryMovements','audit'],'readwrite',async tx=>{
     const store=tx.objectStore('catalog');
     const prev=input.id?await request(store.get(input.id)):null;
     if(input.id&&!prev)throw Error('Price item not found');
-    const type=input.type==='tyre'?'tyre':'service';
-    const stockEnabled=type==='tyre';
+    const type=isStockProduct(input)?input.type:'service';
+    const stockEnabled=isStockProduct({type});
+    const categoryId=prev?.categoryId??input.categoryId;
+    const shop=stockEnabled?await request(tx.objectStore('settings').get('shop')):null;
+    const attributes=stockEnabled&&(type==='product'||input.attributes!==undefined)
+      ?inventoryAttributes(shop,{type,categoryId,attributes:prev?.attributes},input.attributes):null;
     const beginning=prev ? stockInt(prev.stockQty||0,'Stock') : stockInt(input.openingStockQty||0,'Opening stock');
-    if(prev && prev.type==='tyre' && type!=='tyre')throw Error('Tyre stock entries cannot be changed into services');
+    if(prev&&isStockProduct(prev)&&prev.type!==type)throw Error('The stock item type cannot be changed.');
     if(prev?.tyreIdentity && tyreIdentity(prev.inventoryMode,{
       brand:input.brand??prev.brand,model:input.model??prev.model,size:input.size??prev.size
     })!==prev.tyreIdentity)throw Error('Stock identity cannot change. Add a separate tyre for a different brand, model or size.');
     const now=new Date().toISOString();
     const value={...(prev||{}),id:input.id||uid(),name,searchName:name.toLowerCase(),type,pricePaise:price,taxBps:rate,code:safeText(input.code??prev?.code),sku:safeText(input.sku??prev?.sku),brand:safeText(input.brand??prev?.brand),model:safeText(input.model??prev?.model),size:safeText(input.size??prev?.size),supplier:safeText(input.supplier??prev?.supplier),costPaise:cost,lowStockAt:stockInt(input.lowStockAt??prev?.lowStockAt??5,'Low-stock threshold'),stockQty:beginning,trackStock:stockEnabled,isActive:input.isActive!==false,updatedAt:now,createdAt:prev?.createdAt||now};
+    if(type==='product')value.categoryId=categoryId;
+    if(attributes)value.attributes=attributes;
     await request(store.put(value));
     if(!prev&&stockEnabled&&beginning>0){await request(tx.objectStore('inventoryMovements').add({id:uid(),productId:value.id,productName:value.name,delta:beginning,balanceAfter:beginning,type:'opening',note:'Opening stock',createdAt:now}));}
     await request(tx.objectStore('audit').add({id:uid(),action:prev?'product-updated':'product-created',detail:value.name,createdAt:now}));
@@ -243,7 +281,7 @@ export async function adjustStock(productId,delta,reason){
   if(!safeText(reason))throw Error('Enter a reason for the adjustment');
   return transact(['catalog','inventoryMovements','audit'],'readwrite',async tx=>{
     const store=tx.objectStore('catalog');const p=await request(store.get(productId));
-    if(!p||p.type!=='tyre')throw Error('Choose a tyre from Inventory');
+    if(!isStockProduct(p))throw Error('Choose a stocked item from Inventory');
     const next=(p.stockQty||0)+delta;if(!Number.isSafeInteger(next)||next<0)throw Error('Insufficient stock for this adjustment');
     p.stockQty=next;p.updatedAt=new Date().toISOString();await request(store.put(p));
     await request(tx.objectStore('inventoryMovements').add({id:uid(),productId,productName:p.name,delta,balanceAfter:next,type:'adjustment',note:safeText(reason),createdAt:p.updatedAt}));
@@ -252,18 +290,21 @@ export async function adjustStock(productId,delta,reason){
   });
 }
 /** Stock-in purchase; purchase cost stored for history and valuation. */
-export async function recordPurchase({productId,qty,costPaise,supplier='',reference=''}){
+export async function recordPurchase({productId,qty,costPaise,supplier='',reference='',purchaseId=uid()}){
   qty=stockInt(qty,'Quantity');costPaise=Number(costPaise);
   if(qty===0)throw Error('Purchase quantity must be greater than zero');
   if(!Number.isSafeInteger(costPaise)||costPaise<0)throw Error('Invalid purchase cost');
   return transact(['catalog','purchases','inventoryMovements','audit'],'readwrite',async tx=>{
+    const purchases=tx.objectStore('purchases');
+    const saved=await request(purchases.get(purchaseId));
+    if(saved)return saved;
     const store=tx.objectStore('catalog');const p=await request(store.get(productId));
-    if(!p||p.type!=='tyre')throw Error('Choose a tyre from Inventory');
+    if(!isStockProduct(p))throw Error('Choose a stocked item from Inventory');
     const next=(p.stockQty||0)+qty;if(!Number.isSafeInteger(next))throw Error('Stock exceeds safe quantity');
-    const now=new Date().toISOString();const id=uid();p.stockQty=next;p.costPaise=costPaise;p.supplier=safeText(supplier)||p.supplier||'';p.updatedAt=now;
+    const now=new Date().toISOString();const id=purchaseId;p.stockQty=next;p.costPaise=costPaise;p.supplier=safeText(supplier)||p.supplier||'';p.updatedAt=now;
     await request(store.put(p));
     const purchase={id,productId,productName:p.name,qty,costPaise,supplier:safeText(supplier),reference:safeText(reference),createdAt:now};
-    await request(tx.objectStore('purchases').add(purchase));
+    await request(purchases.add(purchase));
     await request(tx.objectStore('inventoryMovements').add({id:uid(),productId,productName:p.name,delta:qty,balanceAfter:next,type:'purchase',reference:id,note:purchase.supplier||'Stock purchase',createdAt:now}));
     await request(tx.objectStore('audit').add({id:uid(),action:'stock-purchased',detail:`${p.name}: +${qty}`,createdAt:now}));
     return purchase;
@@ -355,7 +396,7 @@ export async function completeOrder(input){
     for(const [productId,qty] of counts){
       const p=await request(catalogStore.get(productId));
       if(!p)throw Error('A selected price-list item was removed. Reopen the invoice.');
-      if(p.type!=='tyre')continue;
+      if(!isStockProduct(p))continue;
       if((p.stockQty||0)<qty)throw Error(`Insufficient stock for ${p.name}: ${p.stockQty||0} available, ${qty} requested`);
       p.stockQty-=qty;p.updatedAt=now;await request(catalogStore.put(p));
       stockLines.push({productId,qty,unitCostPaise:p.costPaise||0,productName:p.name,balanceAfter:p.stockQty});
@@ -423,7 +464,7 @@ export async function cancelOrder(id,reason='') {
     if(balance>0)throw Error('Record a refund before cancelling a paid invoice. Contact support for refund processing.');
     // Restore tracked stock only once, on an actual cancellation.
     const counts=trackedQuantities(order.items||[]);
-    for(const [productId,qty] of counts){const store=tx.objectStore('catalog');const product=await request(store.get(productId));if(product?.type!=='tyre')continue;product.stockQty+=qty;product.updatedAt=new Date().toISOString();await request(store.put(product));await request(tx.objectStore('inventoryMovements').add({id:uid(),productId,productName:product.name,delta:qty,balanceAfter:product.stockQty,type:'cancellation',reference:id,note:order.number,createdAt:product.updatedAt}));}
+    for(const [productId,qty] of counts){const store=tx.objectStore('catalog');const product=await request(store.get(productId));if(!isStockProduct(product))continue;product.stockQty+=qty;product.updatedAt=new Date().toISOString();await request(store.put(product));await request(tx.objectStore('inventoryMovements').add({id:uid(),productId,productName:product.name,delta:qty,balanceAfter:product.stockQty,type:'cancellation',reference:id,note:order.number,createdAt:product.updatedAt}));}
     order.status='cancelled';order.cancelReason=safeText(reason);order.cancelledAt=new Date().toISOString();
     await request(tx.objectStore('orders').put(order));
     await request(tx.objectStore('audit').add({id:uid(),action:'order-cancelled',detail:`${order.number}: ${reason}`,createdAt:order.cancelledAt}));
@@ -570,7 +611,7 @@ export async function restoreBackup(json,{disconnectCloud=false}={}){
   if(wrapper.payload.schemaVersion===3){data.inventoryMovements=[];data.purchases=[];}
   if(wrapper.payload.schemaVersion<6)data.reminders=[];
   // Treat restored tyre records like current records even when the backup is old.
-  if(Array.isArray(data.catalog))data.catalog=data.catalog.map(item=>item.type==='tyre'
+  if(Array.isArray(data.catalog))data.catalog=data.catalog.map(item=>isStockProduct(item)
     ? {...item,trackStock:true,stockQty:Number.isSafeInteger(item.stockQty)&&item.stockQty>=0?item.stockQty:0}
     : {...item,trackStock:false});
   for(const store of STORES){

@@ -1,8 +1,9 @@
+import {inventoryCategories,productCategory,isStockProduct} from './tyres.mjs';
 import {initUpdates,checkUpdates,installAppUpdate,updateStatus} from './updates.mjs';
 import {inventoryMode,tyreName} from './tyres.mjs';
 import {modeChoices,purchaseFields,updatePurchaseFields,tyrePicker,updateTyrePicker} from './tyre-ui.mjs';
 import {loginCloud,firstRunStep,restoreAccount,finishFirstSetup,logoutCloud,cloudStatus,syncCloud,startCloud,restoreOffline,updateCloudPresence} from './cloud.mjs';
-import {getDatabase,saveReceivedDraft,receivedDraft, getSetting,saveSetting,saveReminder,completeReminder,summaryData,invoiceDetails,customerDetails,upsertCustomer,setVehicle,addCatalogItem,adjustStock,buyTyres,setInventoryMode,completeOrder,editOrder,addPayment,recordRefund,cancelOrder,addExpense,exportBackup,packAndroidBackup,restoreBackup,searchCustomers,all,addAudit} from './db.mjs';
+import {getDatabase,saveReceivedDraft,receivedDraft, getSetting,saveSetting,saveReminder,completeReminder,summaryData,invoiceDetails,customerDetails,upsertCustomer,setVehicle,addCatalogItem,adjustStock,buyTyres,recordPurchase,saveInventoryCategory,setInventoryMode,completeOrder,editOrder,addPayment,recordRefund,cancelOrder,addExpense,exportBackup,packAndroidBackup,restoreBackup,searchCustomers,all,addAudit} from './db.mjs';
 import {uid,escapeHTML,toPaise,fromPaise,formatMoney,todayISO,monthISO,normalizePhone,normalizeVehicle,toCSV,fileSafeName,calculateBill,estimateProfit} from './logic.mjs';
 import {t} from './i18n.mjs';
 import {legalLinks,consentRecord,openLegalPage} from './legal.mjs';
@@ -211,7 +212,7 @@ function statCard(label,value,icon,accent,detail){return `<article class="stat-c
 function dailyGraph(orders){const nowDate=new Date();const days=Array.from({length:7},(_,i)=>{const d=new Date(nowDate);d.setDate(d.getDate()-(6-i));return {iso:todayISO(d),label:d.toLocaleDateString('en-IN',{weekday:'short'}),sum:0};});for(const o of orders) {const day=days.find(d=>d.iso===o.date);if(day)day.sum+=o.totals.grandPaise;}if(!days.some(d=>d.sum))return `<div class="chart-empty">${I('chart')}<p>${T('emptyChart')}</p></div>`;const max=Math.max(...days.map(d=>d.sum));return `<div class="chart">${days.map((d,i)=>`<div class="chart-column"><div class="chart-bar" data-money="${E(M(d.sum))}" style="height:${Math.max(d.sum?6:1,Math.round(d.sum/max*100))}%"></div><span class="chart-label">${d.label}</span></div>`).join('')}</div>`;}
 function dashboard(){
  const s=stats(),shop=state.data.settings,orders=activeOrders().slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
- const low=state.data.catalog.filter(p=>p.type==='tyre'&&(p.stockQty||0)<=p.lowStockAt);
+ const low=state.data.catalog.filter(p=>isStockProduct(p)&&(p.stockQty||0)<=p.lowStockAt);
  const todayCount=orders.filter(o=>o.date===todayISO()).length;
  const primary=`<section class="dash-lead"><div class="dash-lead-copy"><div class="dash-lead-eyebrow"><span class="live-dot"></span> YOUR WORKSHOP · ${E(fmtDate(new Date().toISOString(),true))}</div><h1>${E(shop.name)}</h1><p>Everything you need for a productive day.</p><div class="dash-lead-actions"><button class="dash-action-new" data-nav="billing">${I('plus')} New bill ${I('arrow')}</button><button class="dash-action-outline" data-action="add-customer">${I('users')} Add customer</button></div></div><div class="dash-lead-today"><span>SALES TODAY</span><strong>${M(s.todaySales)}</strong><small>${todayCount} ${todayCount===1?'invoice':'invoices'} today</small></div></section>`;
  const tiles=`<div class="dash-metrics">${statCard('Est. profit',M(s.profit.estimatedProfitPaise),'chart','green','This month · after stock costs & expenses')}${statCard('This month',M(s.monthSales),'money','blue','Total billed this month')}${statCard('Customer dues',M(s.pending),'clock','gold','Unpaid balances')}${statCard('Active customers',String(s.customers),'users','orange','Saved customer profiles')}</div>`;
@@ -244,6 +245,9 @@ function outstandingPayments(){
  return header(T('outstandingPayments'),T('outstandingSubtitle'),'PAYMENTS / COLLECTIONS',`<button type="button" class="button" data-nav="sales">${I('receipt')}${T('sales')}</button>`)+tiles+`<section class="panel dues-panel"><div class="dues-toolbar"><div class="searchbar"><span>${I('search')}</span><input id="page-search" value="${E(state.search)}" placeholder="${E(T('searchPlaceholder'))}" aria-label="${E(T('search'))}"></div><div class="dues-guidance">${I('message')}${T('remindHelp')}</div></div>${listing}</section>`;
 }
 
+const shopCategories=()=>inventoryCategories(state.data.settings);
+const customProducts=()=>state.data.catalog.filter(p=>p.type==='product'&&p.isActive!==false);
+const stockName=p=>p.type==='tyre'?tyreName(p,shopMode()):p.name;
 const activeTyres=()=>state.data.catalog.filter(p=>p.type==='tyre'&&p.isActive!==false);
 const shopMode=()=>inventoryMode(state.data.settings,state.data.catalog);
 function purchaseHistory(){
@@ -266,6 +270,7 @@ function inventory(){
  +`<div class="stats inventory-stats">${statCard(T('tyresInStock'),tracked.reduce((n,p)=>n+(p.stockQty||0),0),'wheel','green',T('trackedQuantity'))}${statCard(T('lowStock'),low.length,'alert','orange',T('itemsNeedStock'))}${statCard(T('stockValue'),M(value),'money','blue',T('basedOnCost'))}</div>`
  +`<div class="toolbar"><div class="searchbar">${I('search')}<input id="page-search" value="${E(state.search)}" placeholder="${E(T('searchInventory'))}"></div><span class="badge gray">${products.length} ${T('tyres').toLowerCase()}</span></div>`
  +`<section class="panel"><div class="panel-header"><div><h3>${T('tyreProducts')}</h3><small>${T('stockUpdatedOnSale')}</small></div></div>${products.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Tyre</th><th>${T('currentStockColumn')}</th><th>${T('purchaseCost')}</th><th>${T('price')}</th><th>${T('status')}</th><th></th></tr></thead><tbody>${products.map(p=>`<tr><td><span class="number">${E(tyreName(p,mode))}</span><span class="subtext">${E(p.supplier||'')}</span></td><td class="number">${p.stockQty||0}</td><td>${M(p.costPaise||0)}</td><td class="number">${M(p.pricePaise)}</td><td>${(p.stockQty||0)<=p.lowStockAt?`<span class="badge rose">${T('lowStock')}</span>`:`<span class="badge green">${T('inStock')}</span>`}</td><td><div class="inventory-actions"><button class="button small" data-restock="${E(p.id)}">Restock</button><button class="button small" data-edit-price="${E(p.id)}">${T('edit')}</button><button class="button small" data-stock-adjust="${E(p.id)}">${T('correctStock')}</button></div></td></tr>`).join('')}</tbody></table></div>`:empty(T('noTyres'),T('newTyreHelp'),'database')}</section>`
+ +customInventory()
  +purchaseHistory()
  +`<section class="panel inventory-history"><div class="panel-header"><div><h3>${T('stockHistory')}</h3><small>${T('allMovements')}</small></div></div>${history.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>${T('date')}</th><th>${T('description')}</th><th>${T('type')}</th><th>${T('qty')}</th><th>${T('notes')}</th></tr></thead><tbody>${history.map(h=>`<tr><td>${fmtDate(h.createdAt,true)}</td><td><strong>${E(h.productName)}</strong></td><td>${E(h.type)}</td><td class="number ${h.delta<0?'stock-negative':'stock-positive'}">${h.delta>0?'+':''}${h.delta}</td><td>${E(h.note||'—')}</td></tr>`).join('')}</tbody></table></div>`:empty(T('noMovements'),T('startInventory'),'database')}</section>`;
 }
@@ -283,7 +288,7 @@ function lineMarkup(line){
   <summary><span><strong data-line-name>${E(line.name||'New service')}</strong>
   <span data-line-caption>${line.qty} × ${M(line.unitPaise)}</span></span><strong id="line-amount-${E(line.key)}">—</strong></summary>
   <div class="line-editor">
-   ${line.catalogId&&line.type==='tyre'?'':`<label class="field field-spread">Description<input data-line-field="name" value="${E(line.name)}"></label>`}
+   ${line.catalogId&&isStockProduct(line)?'':`<label class="field field-spread">Description<input data-line-field="name" value="${E(line.name)}"></label>`}
    <label class="field">Quantity<input type="number" min="1" max="9999" data-line-field="qty" value="${line.qty}"></label>
    <label class="field">Price per item (₹)<input type="number" min="0" step="0.01" data-line-field="unitPaise" value="${amountField(line.unitPaise)}"></label>
    <div class="field"><label for="line-discount-${E(line.key)}">Discount</label><div class="discount-inline">
@@ -295,6 +300,7 @@ function lineMarkup(line){
   </div></details>`;
 }
 function billing(){const b=state.bill||((startBill()),state.bill);const prices=state.data.catalog.filter(p=>p.isActive!==false&&p.type==='service');const hidden=canBill()?'':'hidden';return header(b.editing?'Edit invoice':'New bill','', '',`${b.editing?'<button type="button" class="button" data-action="discard-invoice-edit">Discard changes</button>':`<button type="button" class="button primary" data-action="draft-show-qr" data-billing-editor ${hidden}>Show payment QR</button>`}<button class="button" data-nav="sales">${I('receipt')}${T('allInvoices')}</button>`)+billingPanel()+`<div class="bill-layout" data-billing-editor ${hidden}><div class="bill-main"><section class="bill-section"><div class="bill-section-title"><h2>${T('customerDetails')}</h2><small>${T('newCustomerHint')}</small></div>${b.selectedCustomerId?renderSelectedCustomer():`<div class="field form-section customer-lookup-field"><label for="customer-lookup">${T('searchCustomer')}</label><div class="searchbar" style="max-width:none;width:100%;height:46px">${I('search')}<input id="customer-lookup" autocomplete="off" value="${E(b.customerQuery)}" placeholder="${E(T('searchPlaceholder'))}"></div><div id="customer-suggestions"></div><small>${T('customerLookupHelp')}</small></div><div class="field-grid"><div class="field"><label for="bill-customer-name">${T('name')}</label><input id="bill-customer-name" value="${E(b.customerName)}" placeholder="e.g. Rahul Patil"></div><div class="field"><label for="bill-customer-phone">${T('phone')} <span class="optional">(${T('optional')})</span></label><input id="bill-customer-phone" type="tel" inputmode="tel" value="${E(b.customerPhone)}" placeholder="10-digit mobile number"></div></div>`}<div class="field" style="margin-top:17px"><label for="bill-vehicle">${T('newVehicle')}</label><input id="bill-vehicle" value="${E(b.vehicle)}" placeholder="MH 21 AB 1234" style="text-transform:uppercase" maxlength="18"></div></section><section class="bill-section"><div class="bill-section-title"><h2>${T('invoiceItems')}</h2></div><h3>Tyres</h3>${shopMode()?tyrePicker(shopMode(),activeTyres()):'<button type="button" class="button" data-action="inventory-mode-settings">Choose inventory mode</button>'}
+ ${customBillPicker()}
  <h3>Services</h3>${prices.length?`<label class="field">Saved services<select id="bill-service"><option value="">Choose a service</option>${prices.map(p=>`<option value="${E(p.id)}">${E(p.name)} · ${M(p.pricePaise)}</option>`).join('')}</select></label>`:''}
  <div id="bill-lines">${b.lines.length?b.lines.map(lineMarkup).join(''):`<div class="empty compact"><div class="empty-icon">${I('plus')}</div><h3>${T('noItems')}</h3></div>`}</div><button type="button" class="bill-add" data-action="add-line">${I('plus')}Add a service</button></section><section class="bill-section"><div class="bill-section-title"><h2>${T('payments')} & ${T('discount')}</h2></div><div class="field-grid"><div class="field"><label>${T('billDiscount')}</label><div style="display:flex;gap:8px"><input id="bill-discount-value" type="number" min="0" step="0.01" value="${E(b.billDiscountValue)}"><select id="bill-discount-type" style="width:90px"><option value="fixed" ${b.billDiscountType==='fixed'?'selected':''}>₹</option><option value="percent" ${b.billDiscountType==='percent'?'selected':''}>%</option></select></div></div><div class="field"><label for="bill-paid">${T('paid')} (₹)</label><input id="bill-paid" type="number" min="0" step="0.01" value="${E(b.paid)}"></div><div class="field"><label for="bill-method">${T('paymentMethod')}</label><select id="bill-method"><option value="cash" ${b.method==='cash'?'selected':''}>${T('cash')}</option><option value="upi" ${b.method==='upi'?'selected':''}>${T('upi')}</option><option value="card" ${b.method==='card'?'selected':''}>${T('card')}</option><option value="other" ${b.method==='other'?'selected':''}>${T('other')}</option></select></div><div class="field"><label for="bill-reference">${T('reference')} <span class="optional">(${T('optional')})</span></label><input id="bill-reference" value="${E(b.paymentReference)}" placeholder="UPI / transaction ID"></div>${state.data.settings.gstRegistered?`<div class="field field-spread"><label for="bill-supply">${T('supplyType')}</label><select id="bill-supply"><option value="intra" ${b.supplyMode==='intra'?'selected':''}>${T('intraState')}</option><option value="inter" ${b.supplyMode==='inter'?'selected':''}>${T('interState')}</option></select><small>${T('taxWarning')}</small></div>`:''}<div class="field field-spread"><label for="bill-notes">${T('notes')} <span class="optional">(${T('optional')})</span></label><textarea id="bill-notes" rows="2" placeholder="Thank you / customer instructions…">${E(b.notes)}</textarea></div></div></section></div><aside class="bill-summary"><div class="summary-card"><div class="summary-head"><strong>Bill summary</strong></div><div id="bill-summary-dynamic"></div><section id="bill-payment-qr" aria-label="Shop payment QR"></section><button class="button primary large" id="save-bill" data-action="save-bill">${I('checkcircle')}${b.editing?'Save changes':T('saveAndView')}${I('arrow')}</button><div class="summary-hint">${I('shield')}<span>New customer profiles are created when the bill is saved.</span></div></div></aside></div>`;}
 function renderSelectedCustomer(){const b=state.bill;const c=state.data.customers.find(x=>x.id===b.selectedCustomerId)||b.selectedCustomer||{name:b.customerName,phone:b.customerPhone};const vehicles=b.selectedCustomer?.vehicles?.map(v=>v.reg).join(', ')||state.data.vehicles.filter(x=>x.customerId===b.selectedCustomerId).map(x=>x.reg).join(', ');return `<div class="customer-chosen">${I('checkcircle')}<div><strong>${E(c.name||c.phone)}</strong><small>${E(c.phone)} ${vehicles?'· '+E(vehicles):''}</small></div><button type="button" class="button small" data-action="clear-customer">${T('clearSelection')}</button></div>`;}
@@ -356,7 +362,7 @@ function inventoryModePanel(){
  return `<section class="setting-panel"><h2>Inventory Mode</h2><form id="inventory-mode-form">${modeChoices(mode,locked)}
  ${locked?'':'<button type="submit" class="button primary">Save inventory mode</button>'}</form></section>`;
 }
-function settings(){const s=state.data.settings;return header(T('settings'),T('settingsSubtitle'),'PREFERENCES / OWNERSHIP')+`<div class="settings-grid"><div>${cloudPanel()}${updatePanel()}${inventoryModePanel()}${servicesSettingsPanel()}<section class="setting-panel"><h2>${T('shopProfile')}</h2><p class="lead">Business details are captured on every new invoice. Historical invoices keep their original business details.</p><form id="settings-form"><div class="field-grid"><div class="field field-spread"><label>${T('businessName')}</label><input name="name" required value="${E(s.name)}"></div><div class="field"><label>${T('ownerName')}</label><input name="owner" required value="${E(s.owner)}"></div><div class="field"><label>${T('phone')}</label><input name="phone" required value="${E(s.phone)}"></div><div class="field"><label>${T('whatsapp')}</label><input name="whatsapp" value="${E(s.whatsapp||'')}"></div><div class="field"><label>${T('address')}</label><input name="address" value="${E(s.address||'')}"></div><div class="field"><label>${T('city')}</label><input name="city" value="${E(s.city||'')}"></div><div class="field"><label>${T('state')}</label><input name="state" value="${E(s.state||'')}"></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="${E(s.invoicePrefix||'INV')}"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false" ${!s.gstRegistered?'selected':''}>${T('unregistered')}</option><option value="true" ${s.gstRegistered?'selected':''}>${T('registered')}</option></select></div><div class="field"><label>${T('gstin')}</label><input name="gstin" maxlength="15" value="${E(s.gstin||'')}"></div><div class="field field-spread"><label>${T('terms')}</label><textarea name="terms" placeholder="Optional service terms, warranty notes…">${E(s.terms||'')}</textarea></div><div class="field field-spread"><label for="payment-qr-file">Shop payment QR (UPI image)</label><input id="payment-qr-file" name="paymentQr" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP, up to 5 MB. Use a clear, complete QR with its white border. Verify the recipient in your payment app. Synced with shop settings and included in backups.</small>${s.paymentQrData?'<img class="qr-settings-preview" src="'+E(s.paymentQrData)+'" alt="Shop payment QR"><label><input name="removeQr" type="checkbox"> Remove payment QR</label>':''}</div></div><button class="button primary settings-save" type="submit">${I('check')}${T('saveChanges')}</button></form></section><section class="setting-panel"><h2>${T('language')} & ${T('theme')}</h2><p class="lead">Switch the application language or appearance instantly.</p><div class="field-grid"><div class="field"><label>${T('language')}</label><select id="setting-language"><option value="en" ${s.language==='en'?'selected':''}>English</option><option value="hi" ${s.language==='hi'?'selected':''}>हिंदी</option><option value="mr" ${s.language==='mr'?'selected':''}>मराठी</option></select></div><div class="field"><label>${T('theme')}</label><select id="setting-theme"><option value="light" ${(s.theme||'light')==='light'?'selected':''}>${T('light')}</option><option value="dark" ${s.theme==='dark'?'selected':''}>${T('dark')}</option></select></div></div></section></div><div id="backup-settings">${backupSettingsCard()}<section class="setting-panel"><h2>${T('backupRestore')}</h2><p class="lead">${T('backupHint')}</p><div class="setting-actions"><button class="setting-action" data-action="backup-drive">${I('upload')}<span><strong>Back Up to Google Drive</strong><small>Keep a copy safely outside this device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore-drive">${I('download')}<span><strong>Restore from Google Drive</strong><small>Recover a shop on this or a new device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="backup">${I('download')}<span><strong>${T('backup')}</strong><small>Export full verified JSON archive</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore">${I('upload')}<span><strong>${T('restore')}</strong><small>Validate and atomically replace the data</small></span>${I('chevron','trailing')}</button><input id="restore-file" type="file" accept=".json,application/json" hidden></div><div class="muted-note" style="margin-top:18px">${I('alert')} ${T('restoreWarning')}</div></section><section class="setting-panel"><h2>${T('security')}</h2><p class="lead">${T('securityNote')}</p><div class="setting-actions"><button class="setting-action" data-action="change-pin">${I('lock')}<span><strong>${T('changePassword')}</strong><small>Current PIN required</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="persist-storage">${I('shield')}<span><strong>Request protected storage</strong><small>Ask browser not to evict local records</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="install">${I('mobile')}<span><strong>${T('install')}</strong><small>Make this an app on your device</small></span>${I('chevron','trailing')}</button></div></section><section class="setting-panel"><h2>Terms &amp; Privacy</h2><p>${legalLinks()}</p><p class="small-muted">${s.legalConsent?'Accepted version '+E(s.legalConsent.termsVersion)+' on '+E(new Date(s.legalConsent.acceptedAt).toLocaleString('en-IN')):'This shop predates consent recording; no acceptance has been assumed.'}</p><p>These documents should be reviewed by an Indian legal professional before commercial distribution.</p></section></div></div>`;}
+function settings(){const s=state.data.settings;return header(T('settings'),T('settingsSubtitle'),'PREFERENCES / OWNERSHIP')+`<div class="settings-grid"><div>${cloudPanel()}${updatePanel()}${inventoryModePanel()}${categoriesPanel()}${servicesSettingsPanel()}<section class="setting-panel"><h2>${T('shopProfile')}</h2><p class="lead">Business details are captured on every new invoice. Historical invoices keep their original business details.</p><form id="settings-form"><div class="field-grid"><div class="field field-spread"><label>${T('businessName')}</label><input name="name" required value="${E(s.name)}"></div><div class="field"><label>${T('ownerName')}</label><input name="owner" required value="${E(s.owner)}"></div><div class="field"><label>${T('phone')}</label><input name="phone" required value="${E(s.phone)}"></div><div class="field"><label>${T('whatsapp')}</label><input name="whatsapp" value="${E(s.whatsapp||'')}"></div><div class="field"><label>${T('address')}</label><input name="address" value="${E(s.address||'')}"></div><div class="field"><label>${T('city')}</label><input name="city" value="${E(s.city||'')}"></div><div class="field"><label>${T('state')}</label><input name="state" value="${E(s.state||'')}"></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="${E(s.invoicePrefix||'INV')}"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false" ${!s.gstRegistered?'selected':''}>${T('unregistered')}</option><option value="true" ${s.gstRegistered?'selected':''}>${T('registered')}</option></select></div><div class="field"><label>${T('gstin')}</label><input name="gstin" maxlength="15" value="${E(s.gstin||'')}"></div><div class="field field-spread"><label>${T('terms')}</label><textarea name="terms" placeholder="Optional service terms, warranty notes…">${E(s.terms||'')}</textarea></div><div class="field field-spread"><label for="payment-qr-file">Shop payment QR (UPI image)</label><input id="payment-qr-file" name="paymentQr" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP, up to 5 MB. Use a clear, complete QR with its white border. Verify the recipient in your payment app. Synced with shop settings and included in backups.</small>${s.paymentQrData?'<img class="qr-settings-preview" src="'+E(s.paymentQrData)+'" alt="Shop payment QR"><label><input name="removeQr" type="checkbox"> Remove payment QR</label>':''}</div></div><button class="button primary settings-save" type="submit">${I('check')}${T('saveChanges')}</button></form></section><section class="setting-panel"><h2>${T('language')} & ${T('theme')}</h2><p class="lead">Switch the application language or appearance instantly.</p><div class="field-grid"><div class="field"><label>${T('language')}</label><select id="setting-language"><option value="en" ${s.language==='en'?'selected':''}>English</option><option value="hi" ${s.language==='hi'?'selected':''}>हिंदी</option><option value="mr" ${s.language==='mr'?'selected':''}>मराठी</option></select></div><div class="field"><label>${T('theme')}</label><select id="setting-theme"><option value="light" ${(s.theme||'light')==='light'?'selected':''}>${T('light')}</option><option value="dark" ${s.theme==='dark'?'selected':''}>${T('dark')}</option></select></div></div></section></div><div id="backup-settings">${backupSettingsCard()}<section class="setting-panel"><h2>${T('backupRestore')}</h2><p class="lead">${T('backupHint')}</p><div class="setting-actions"><button class="setting-action" data-action="backup-drive">${I('upload')}<span><strong>Back Up to Google Drive</strong><small>Keep a copy safely outside this device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore-drive">${I('download')}<span><strong>Restore from Google Drive</strong><small>Recover a shop on this or a new device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="backup">${I('download')}<span><strong>${T('backup')}</strong><small>Export full verified JSON archive</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore">${I('upload')}<span><strong>${T('restore')}</strong><small>Validate and atomically replace the data</small></span>${I('chevron','trailing')}</button><input id="restore-file" type="file" accept=".json,application/json" hidden></div><div class="muted-note" style="margin-top:18px">${I('alert')} ${T('restoreWarning')}</div></section><section class="setting-panel"><h2>${T('security')}</h2><p class="lead">${T('securityNote')}</p><div class="setting-actions"><button class="setting-action" data-action="change-pin">${I('lock')}<span><strong>${T('changePassword')}</strong><small>Current PIN required</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="persist-storage">${I('shield')}<span><strong>Request protected storage</strong><small>Ask browser not to evict local records</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="install">${I('mobile')}<span><strong>${T('install')}</strong><small>Make this an app on your device</small></span>${I('chevron','trailing')}</button></div></section><section class="setting-panel"><h2>Terms &amp; Privacy</h2><p>${legalLinks()}</p><p class="small-muted">${s.legalConsent?'Accepted version '+E(s.legalConsent.termsVersion)+' on '+E(new Date(s.legalConsent.acceptedAt).toLocaleString('en-IN')):'This shop predates consent recording; no acceptance has been assumed.'}</p><p>These documents should be reviewed by an Indian legal professional before commercial distribution.</p></section></div></div>`;}
 function modal(title,subtitle,body,footer='',wide=false,variant=''){state.modal=`<div class="overlay ${variant}" data-close-modal><div class="modal ${wide?'xl':''}" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>${title}</h2>${subtitle?`<p>${subtitle}</p>`:''}</div><button class="icon-button" data-action="close-modal" aria-label="Close">${I('close')}</button></div><div class="modal-body">${body}</div>${footer?`<div class="modal-footer">${footer}</div>`:''}</div></div>`;const h=$('#modal-host');if(h)h.innerHTML=state.modal;}
 function closeModal(){state.modal=null;const h=$('#modal-host');if(h)h.innerHTML='';}
 function showBackupOptions(){
@@ -373,6 +379,56 @@ function modalButtons(submitId,label=T('save')){return `<button class="button" d
 function showCustomerModal(c=null){const vehicles=c?state.data.vehicles.filter(v=>v.customerId===c.id):[];const orders=c?activeOrders().filter(o=>o.customerId===c.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)):[];const spend=orders.reduce((n,o)=>n+o.totals.grandPaise,0),due=orders.reduce((n,o)=>n+o.duePaise,0);
  const body=`${c?`<div class="customer-metrics"><div class="customer-metric"><small>${T('customerSpend')}</small><strong>${M(spend)}</strong></div><div class="customer-metric"><small>${T('customerDue')}</small><strong>${M(due)}</strong></div><div class="customer-metric"><small>${T('invoices')}</small><strong>${orders.length}</strong></div></div>`:''}<form id="customer-form" data-id="${c?.id||''}"><div class="field-grid"><div class="field"><label>${T('name')}</label><input name="name" value="${E(c?.name||'')}" placeholder="Customer name"></div><div class="field"><label>${T('phone')}</label><input name="phone" type="tel" value="${E(c?.phone||'')}" placeholder="Contact number"></div><div class="field field-spread"><label>${T('newVehicle')}</label><input name="vehicle" placeholder="MH 21 AB 1234" value="" /><small>${c?`Current vehicles: ${E(vehicles.map(v=>v.reg).join(', ')||'none')}`:'A new vehicle can be linked here, or when creating an invoice.'}</small></div><div class="field field-spread"><label>${T('notes')}</label><textarea name="notes">${E(c?.notes||'')}</textarea></div></div></form>${c&&orders.length?`<div class="separator"></div><div class="form-section-heading"><h3>${T('customerHistory')}</h3></div><div class="detail-list">${orders.slice(0,12).map(o=>`<button class="detail-row" style="border:0;border-bottom:1px solid var(--border);background:none;width:100%;text-align:left;cursor:pointer;color:var(--ink)" data-invoice="${E(o.id)}"><span>${E(o.number)} · ${fmtDate(o.createdAt,true)}</span><strong>${M(o.totals.grandPaise)}</strong></button>`).join('')}</div>`:''}`;
  modal(c?T('customerDetails'):T('newCustomer'),c?`${E(c.name||c.phone)} · ${E(c.phone||'')}`:T('newCustomerHint'),body,modalButtons('customer-form'));}
+function categoryFields(category,item){
+ return (category?.fields||[]).map(field=>`<label class="field">${E(field.label)}<input name="attribute-${E(field.id)}" maxlength="160" value="${E(item?.attributes?.[field.id]||'')}"></label>`).join('');
+}
+function submittedAttributes(data){
+ return Object.fromEntries([...data].filter(([name])=>name.startsWith('attribute-')).map(([name,value])=>[name.slice(10),value]));
+}
+function categoriesPanel(){
+ return `<section class="setting-panel"><h2>Inventory categories</h2><p>Choose the optional fields to show for each category.</p>
+ <ul class="settings-services">${shopCategories().map(c=>`<li><span>${E(c.name)}</span><button type="button" class="button small" data-action="edit-category" data-category="${E(c.id)}">Edit</button></li>`).join('')}</ul>
+ <button type="button" class="button" data-action="edit-category">Add category</button></section>`;
+}
+function showCategoryModal(category){
+ const fields=category?.fields||[];
+ const input=field=>`<label class="field">Field name<input name="field" maxlength="60" value="${E(field?.label||'')}" ${field?'required':''}></label>`;
+ modal(category?'Edit category':'Add category','',`<form id="category-form" data-id="${E(category?.id||'')}">
+  <label class="field">Category name<input name="name" maxlength="60" required value="${E(category?.name||'')}" ${category?.id==='tyres'?'readonly':''}></label>
+  <div class="field-grid" data-category-fields>${fields.map(input).join('')}${fields.length<12?input():''}</div>
+  ${fields.length<11?'<button type="button" class="button small" data-action="add-category-field">Add field</button>':''}
+ </form>`,modalButtons('category-form'));
+}
+function customInventory(){
+ const categories=shopCategories().filter(c=>c.id!=='tyres');
+ if(!categories.length)return '';
+ const query=state.search.trim().toLowerCase();
+ return categories.map(category=>{
+  const items=customProducts().filter(p=>p.categoryId===category.id&&(!query||[p.name,...Object.values(p.attributes||{})].some(value=>value.toLowerCase().includes(query))));
+  return `<section class="panel"><div class="panel-header"><h3>${E(category.name)}</h3><button type="button" class="button small" data-action="edit-stock-product" data-category="${E(category.id)}">Add product</button></div>
+  ${items.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Product</th><th>Stock</th><th>Cost</th><th>Price</th><th></th></tr></thead><tbody>
+  ${items.map(p=>`<tr><td><strong>${E(p.name)}</strong><span class="subtext">${category.fields.filter(f=>p.attributes?.[f.id]).map(f=>E(f.label)+': '+E(p.attributes[f.id])).join(' · ')}</span></td>
+   <td>${p.stockQty||0}</td><td>${M(p.costPaise||0)}</td><td>${M(p.pricePaise)}</td><td><div class="inventory-actions">
+   <button type="button" class="button small" data-stock-in="${E(p.id)}">Restock</button><button type="button" class="button small" data-action="edit-stock-product" data-product="${E(p.id)}" data-category="${E(category.id)}">Edit</button>
+   <button type="button" class="button small" data-stock-adjust="${E(p.id)}">Correct stock</button></div></td></tr>`).join('')}
+  </tbody></table></div>`:''}</section>`;
+ }).join('');
+}
+function showCustomProductModal(category,product){
+ if(!category)return;
+ modal(product?'Edit product':'Add product',E(category.name),`<form id="custom-product-form" data-category="${E(category.id)}" data-id="${E(product?.id||'')}"><div class="field-grid">
+  <label class="field field-spread">Product name<input name="name" required maxlength="150" value="${E(product?.name||'')}"></label>
+  ${categoryFields(category,product)}
+  ${product?'':'<label class="field">Opening stock<input name="stock" type="number" min="0" step="1" value="0" required></label>'}
+  <label class="field">Cost per item (₹)<input name="cost" type="number" min="0" step="0.01" value="${amountField(product?.costPaise??0)}" required></label>
+  <label class="field">Selling price (₹)<input name="price" type="number" min="0" step="0.01" value="${amountField(product?.pricePaise)}" required></label>
+  ${state.data.settings.gstRegistered?`<label class="field">GST (%)<input name="gst" type="number" min="0" max="100" step="0.01" value="${(product?.taxBps||0)/100}"></label>`:''}
+ </div></form>`,modalButtons('custom-product-form'));
+}
+function customBillPicker(){
+ const groups=shopCategories().filter(c=>c.id!=='tyres').map(c=>({name:c.name,products:customProducts().filter(p=>p.categoryId===c.id&&billStock(p)>0)})).filter(group=>group.products.length);
+ return groups.length?`<label class="field">Stocked products<select id="bill-product"><option value="">Choose a product</option>${groups.map(g=>`<optgroup label="${E(g.name)}">${g.products.map(p=>`<option value="${E(p.id)}">${E(p.name)} · ${M(p.pricePaise)}</option>`).join('')}</optgroup>`).join('')}</select></label>`:'';
+}
 function servicesSettingsPanel(){
  const services=state.data.catalog.filter(item=>item.type==='service').sort((a,b)=>a.name.localeCompare(b.name));
  return `<section class="setting-panel" aria-labelledby="settings-services-title">
@@ -389,6 +445,7 @@ function showPriceModal(p=null){
   ${tyre?`<p class="field-spread"><strong>${E(tyreName(p,shopMode()))}</strong> · Current stock ${p.stockQty||0}</p>`:`<label class="field field-spread">Service name<input name="name" maxlength="150" required value="${E(p?.name||'')}"></label>`}
   <label class="field">Selling price (₹)<input name="price" type="number" min="0" step="0.01" required value="${amountField(p?.pricePaise)}"></label>
   <label class="field">GST (%)<input name="taxRate" type="number" min="0" max="100" step="0.01" value="${p?.taxBps?p.taxBps/100:0}"></label>
+  ${tyre?categoryFields(productCategory(state.data.settings,p),p):''}
   ${tyre?`<label class="field">Low stock warning at<input name="lowStockAt" type="number" min="0" step="1" value="${p.lowStockAt??5}"></label>`:
     `<label class="field-spread consent"><input type="checkbox" name="activeService" ${p?.isActive===false?'':'checked'}> Show this service on new invoices</label>`}
  </div></form>`;
@@ -396,26 +453,33 @@ function showPriceModal(p=null){
 }
 function showStockModal(product=null,kind='purchase'){
  if(kind==='purchase'){
+  if(product?.type==='product'){
+   modal('Restock product',E(product.name),`<form id="custom-restock-form" data-id="${E(product.id)}" data-request="${uid()}"><div class="field-grid">
+    <label class="field">Quantity<input name="qty" type="number" min="1" step="1" required></label>
+    <label class="field">Cost per item (₹)<input name="cost" type="number" min="0" step="0.01" required value="${amountField(product.costPaise)}"></label>
+    <label class="field field-spread">Supplier<input name="supplier" maxlength="100"></label>
+   </div></form>`,modalButtons('custom-restock-form','Save purchase'));return;
+  }
   const mode=shopMode();
   if(!mode){nav('settings');$('#inventory-mode-form')?.scrollIntoView({block:'center'});return;}
-  const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product)}</form>`;
+  const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product)}${!product?`<div class="field-grid">${categoryFields(shopCategories()[0])}</div>`:''}</form>`;
   modal(product?'Restock tyres':'Add purchased tyres','',body,modalButtons('purchase-form','Save purchase'),false,'purchase-dialog');
   if(!product)updatePurchaseFields($('#purchase-form'),mode,activeTyres());
   return;
  }
- if(!product||product.type!=='tyre')return;
+ if(!isStockProduct(product))return;
  const body=`<form id="stock-form" data-id="${E(product.id)}"><div class="field-grid">
   <label class="field">Correction<select name="direction"><option value="add">Increase stock</option><option value="remove">Decrease stock</option></select></label>
   <label class="field">Quantity<input name="qty" type="number" min="1" step="1" required value="1"></label>
   <label class="field field-spread">Reason<input name="reason" required maxlength="250" placeholder="Damage or physical count correction"></label>
  </div></form>`;
- modal('Correct stock',`${tyreName(product,shopMode())} · Current stock ${product.stockQty||0}`,body,modalButtons('stock-form'));
+ modal('Correct stock',`${stockName(product)} · Current stock ${product.stockQty||0}`,body,modalButtons('stock-form'));
 }
 function appendTyre(product,qty,unitPaise){
  const used=state.bill.lines.filter(line=>line.catalogId===product.id).reduce((sum,line)=>sum+line.qty,0);
  if(!Number.isSafeInteger(qty)||qty<1||used+qty>billStock(product))throw Error('This quantity exceeds the available stock.');
  if(!Number.isSafeInteger(unitPaise)||unitPaise<0)throw Error('Enter a valid selling price.');
- state.bill.lines.push({...newLine(product),name:tyreName(product,shopMode()),qty,unitPaise});
+ state.bill.lines.push({...newLine(product),name:stockName(product),qty,unitPaise});
  rerenderBillLines();
 }
 function billStock(product){
@@ -480,6 +544,14 @@ async function doAction(action,target){switch(action){
  case 'inventory-mode-settings':await nav('settings');$('#inventory-mode-form')?.scrollIntoView({block:'center'});return;
  case 'check-updates':await checkUpdates();return;
  case 'install-update':await installAppUpdate();return;
+ case 'edit-category':showCategoryModal(shopCategories().find(c=>c.id===target.dataset.category));return;
+ case 'add-category-field':{
+   const host=$('[data-category-fields]');
+   if(host.children.length<12)host.insertAdjacentHTML('beforeend','<label class="field">Field name<input name="field" maxlength="60"></label>');
+   host.lastElementChild.querySelector('input').focus();
+   target.hidden=host.children.length>=12;return;
+ }
+ case 'edit-stock-product':showCustomProductModal(shopCategories().find(c=>c.id===target.dataset.category),customProducts().find(p=>p.id===target.dataset.product));return;
  case 'buy-tyres':showStockModal(null,'purchase');return;
  case 'export-inventory':{
    const mode=shopMode(),details=mode!=='simple';
@@ -593,17 +665,32 @@ async function runForm(form){const f=new FormData(form);const v=k=>String(f.get(
    appendTyre(product,Number(v('qty')),toPaise(v('price')));
    form.reset();updateBillPicker();return;
  }
+ if(form.id==='category-form'){
+   await saveInventoryCategory(form.dataset.id,v('name'),f.getAll('field'));
+   await refresh();closeModal();toast('Category saved');return;
+ }
+ if(form.id==='custom-product-form'){
+   await addCatalogItem({id:form.dataset.id||undefined,type:'product',categoryId:form.dataset.category,name:v('name'),
+     openingStockQty:Number(v('stock')||0),costPaise:toPaise(v('cost')),pricePaise:toPaise(v('price')),
+     taxBps:Math.round(Number(v('gst')||0)*100),attributes:submittedAttributes(f)});
+   await refresh();closeModal();toast('Product saved');return;
+ }
+ if(form.id==='custom-restock-form'){
+   await recordPurchase({productId:form.dataset.id,purchaseId:form.dataset.request,qty:Number(v('qty')),costPaise:toPaise(v('cost')),supplier:v('supplier')});
+   await refresh();closeModal();toast(T('stockUpdated'));return;
+ }
  if(form.id==='price-form'){
    const p=state.data.catalog.find(item=>item.id===form.dataset.id);
    await addCatalogItem({...p,name:p?.type==='tyre'?p.name:v('name'),type:form.dataset.type,
      pricePaise:toPaise(v('price')),taxBps:Math.round(Number(v('taxRate'))*100),lowStockAt:v('lowStockAt')||p?.lowStockAt,
+     attributes:p?.type==='tyre'?submittedAttributes(f):undefined,
      isActive:form.dataset.type==='service'?f.has('activeService'):p?.isActive});
    await refresh();closeModal();toast(T('saveChanges'));return;
  }
  if(form.id==='purchase-form'){
    await buyTyres({mode:form.dataset.mode,existingId:form.dataset.product,purchaseId:form.dataset.request,
      brand:v('brand'),model:v('model'),size:v('size'),qty:Number(v('qty')),costPaise:toPaise(v('cost')),
-     pricePaise:toPaise(v('price')),supplier:v('supplier'),reference:v('reference')});
+     pricePaise:toPaise(v('price')),supplier:v('supplier'),reference:v('reference'),attributes:submittedAttributes(f)});
    await refresh();closeModal();toast(T('stockUpdated'));return;
  }
  if(form.id==='stock-form'){const qty=Number(v('qty'));await adjustStock(form.dataset.id,v('direction')==='remove'?-qty:qty,v('reason'));await refresh();closeModal();toast(T('stockUpdated'));return;}
@@ -664,6 +751,12 @@ document.addEventListener('change',async event=>{const el=event.target;try{
    return;
  }
  if(el.closest('#tyre-bill-form')&&['brand','model','size','exact'].includes(el.name)){updateBillPicker(el.name);return;}
+ if(el.id==='bill-product'){
+   const product=customProducts().find(item=>item.id===el.value);
+   el.value='';
+   if(product)appendTyre(product,1,product.pricePaise);
+   return;
+ }
  if(el.id==='bill-service'){
    const service=state.data.catalog.find(p=>p.id===el.value&&p.type==='service');
    if(service){state.bill.lines.push({...newLine(service),expanded:true});rerenderBillLines();}
