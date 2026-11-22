@@ -1,5 +1,5 @@
 import {escapeHTML as E, fromPaise} from './logic.mjs';
-import {tyreKey, tyreName, tyreIdentity} from './tyres.mjs';
+import {tyreKey, tyreName, tyreIdentity, stockKeyFields, isVariantTyre} from './tyres.mjs';
 
 const label = key => ({brand:'Brand',model:'Model',size:'Size'})[key];
 const dimensions = mode => mode === 'simple' ? ['brand'] : ['brand','model','size'];
@@ -18,14 +18,14 @@ export function modeChoices(current='', locked=false) {
     ${locked?'<p class="small-muted">This setting is locked because this shop already has tyre stock records. Changing how stock is grouped requires reassigning stock and its history.</p>':''}`;
 }
 
-export function purchaseFields(mode, product) {
+export function purchaseFields(mode, product, settings) {
   const fields=dimensions(mode).map(key=>`<div class="field purchase-identity" data-purchase-dimension="${key}">
     <label for="buy-${key}">${label(key)}</label>
     <select id="buy-${key}" data-purchase-choice="${key}" aria-label="${label(key)}"></select>
     <input name="${key}" maxlength="90" aria-label="New ${key}" placeholder="Enter ${key}" autocomplete="off">
   </div>`).join('');
   return `<div class="field-grid tyre-fields">
-    ${product?`<p class="field-spread"><strong>${E(tyreName(product,mode))}</strong> · Current stock <strong>${product.stockQty||0}</strong></p>`:fields}
+    ${product?`<p class="field-spread"><strong>${E(tyreName(product,mode,settings))}</strong> · Current stock <strong>${product.stockQty||0}</strong></p>`:fields}
     <label class="field">How many tyres did you buy?<input name="qty" type="number" min="1" step="1" value="1" required></label>
     <label class="field purchase-cost">Purchase price per tyre (₹)<input name="cost" type="number" min="0" step="0.01" value="${product?formatted(product.costPaise):''}" required></label>
     <label class="field purchase-price">Selling price per tyre (₹)<input name="price" type="number" min="0" step="0.01" value="${product?formatted(product.pricePaise):''}" required></label>
@@ -35,7 +35,7 @@ export function purchaseFields(mode, product) {
   </div>`;
 }
 
-export function updatePurchaseFields(form, mode, tyres, changed='') {
+export function updatePurchaseFields(form, mode, tyres, changed='', settings=null) {
   const entries={};
   for(const key of dimensions(mode)){
     const input=form.elements.namedItem(key);
@@ -59,9 +59,19 @@ export function updatePurchaseFields(form, mode, tyres, changed='') {
     entries[key]=ready?input.value:'';
     tyres=filterBy(tyres,key,entries[key]);
   }
-  const identity=tyreIdentity(mode,entries);
-  const match=identity && tyres.find(p=>tyreIdentity(mode,p)===identity);
-  form.querySelector('[data-purchase-match]').textContent=match?`Current stock is ${match.stockQty||0}. This purchase adds to that stock.`:'';
+  const fields=stockKeyFields(settings);
+  const attributes=Object.fromEntries(fields.map(field=>
+    [field.id,form.elements.namedItem('attribute-'+field.id)?.value||'']));
+  const identity=tyreIdentity(mode,{...entries,attributes},settings);
+  const match=identity&&tyres.find(p=>p.tyreIdentity===identity||
+    (!fields.length&&!p.tyreIdentity&&tyreIdentity(mode,p)===identity));
+  const status=form.querySelector('[data-purchase-match]');
+  if(status)status.textContent=identity
+    ?(match?`Current stock is ${match.stockQty||0}. This purchase adds to that exact tyre variant.`:
+      'New tyre variant. A separate stock record will be created.')
+    :(tyreIdentity(mode,entries)&&fields.length
+      ?'Fill every field marked as a separate tyre variant before purchasing.'
+      :'');
   if(match){
     for(const [field,value] of [['cost',match.costPaise],['price',match.pricePaise]]){
       const input=form.elements[field];
@@ -70,20 +80,25 @@ export function updatePurchaseFields(form, mode, tyres, changed='') {
   }
 }
 
-export function tyrePicker(mode, tyres) {
-  const hasLegacy=tyres.some(p=>!tyreIdentity(mode,p));
+export function tyrePicker(mode, tyres, settings) {
+  const fields=stockKeyFields(settings);
+  const hasLegacy=tyres.some(p=>!tyreIdentity(mode,p)||
+    (fields.length&&!isVariantTyre(p)));
+  const filters=fields.map(field=>`<label class="field">${E(field.label)}<select name="stock-field-${E(field.id)}" data-stock-field="${E(field.id)}"><option value="">All ${E(field.label)}</option></select></label>`).join('');
   return `<form id="tyre-bill-form" class="field-grid tyre-fields">
     ${dimensions(mode).map(key=>`<label class="field">${label(key)}<select name="${key}" required><option value="">Choose ${label(key).toLowerCase()}</option></select></label>`).join('')}
-    <label class="field" data-exact-tyre hidden>Stock entry<select name="exact"></select></label>
+    ${filters}
+    <label class="field" data-exact-tyre hidden>Exact tyre variant<select name="exact"></select></label>
     <label class="field">Quantity<input type="number" name="qty" min="1" step="1" value="1" required></label>
     <label class="field">Price per tyre (₹)<input type="number" name="price" min="0" step="0.01" required></label>
     <p data-bill-stock class="small-muted field-spread" aria-live="polite"></p>
     <button type="submit" class="button field-spread">Add tyre to bill</button>
-  </form>${hasLegacy?`<details class="legacy-tyres"><summary>Existing stock with missing tyre details</summary>
-    <ul>${tyres.filter(p=>!tyreIdentity(mode,p)).map(p=>`<li><button type="button" class="button" data-legacy-tyre="${E(p.id)}">${E(tyreName(p,mode))} · ${p.stockQty||0} in stock</button></li>`).join('')}</ul></details>`:''}`;
+  </form>${hasLegacy?`<details class="legacy-tyres"><summary>Legacy or unclassified tyre stock</summary>
+    <ul>${tyres.filter(p=>!tyreIdentity(mode,p)||(fields.length&&!isVariantTyre(p))).map(p=>`<li><button type="button" class="button" data-legacy-tyre="${E(p.id)}">${E(tyreName(p,mode,settings))} · ${p.stockQty||0} in stock</button></li>`).join('')}</ul></details>`:''}`;
 }
 
-export function updateTyrePicker(form, mode, catalog, changed='') {
+export function updateTyrePicker(form, mode, catalog, changed='', settings=null) {
+  const fields=stockKeyFields(settings);
   let matching=catalog.filter(p=>tyreIdentity(mode,p));
   let clear=false;
   for(const key of dimensions(mode)){
@@ -94,19 +109,40 @@ export function updateTyrePicker(form, mode, catalog, changed='') {
     field.value=[...field.options].some(o=>o.value===previous)?previous:'';
     field.disabled=field.options.length===1;
     matching=field.value?filterBy(matching,key,field.value):[];
-    clear ||= changed===key;
+    clear ||=changed===key;
+  }
+  for(const key of fields){
+    const select=form.elements.namedItem('stock-field-'+key.id);
+    if(!select)continue;
+    const prior=clear?'':select.value;
+    const possible=options(matching.map(p=>p.attributes?.[key.id]));
+    const unclassified=matching.some(p=>!tyreKey(p.attributes?.[key.id]));
+    select.replaceChildren(new Option('All '+key.label,''),...possible.map(v=>new Option(v,v)));
+    if(unclassified)select.add(new Option('Unclassified stock','__unclassified__'));
+    select.value=[...select.options].some(o=>o.value===prior)?prior:'';
+    select.disabled=select.options.length<=1;
+    if(select.value)matching=matching.filter(p=>
+      select.value==='__unclassified__'?!tyreKey(p.attributes?.[key.id]):
+      tyreKey(p.attributes?.[key.id])===tyreKey(select.value));
+    clear ||=changed==='stock-field-'+key.id;
   }
   const exact=form.elements.exact;
   const previous=changed==='exact'?exact.value:'';
-  exact.replaceChildren(...matching.map(p=>new Option(tyreName(p,mode)+' · '+(p.stockQty||0)+' in stock',p.id)));
-  if(previous)exact.value=previous;
+  exact.replaceChildren();
+  if(matching.length>1)exact.add(new Option('Choose exact tyre variant',''));
+  for(const p of matching)exact.add(new Option(tyreName(p,mode,settings)+' · '+(p.stockQty||0)+' in stock',p.id));
+  if(matching.length===1)exact.value=matching[0].id;
+  else exact.value=previous&&matching.some(p=>p.id===previous)?previous:'';
   exact.parentElement.hidden=matching.length<2;
   exact.disabled=matching.length<2;
+  exact.required=matching.length>1;
   const product=matching.find(p=>p.id===exact.value);
   form.dataset.product=product?.id||'';
-  form.querySelector('[data-bill-stock]').textContent=product?`${product.stockQty||0} tyres in stock`:'Choose a tyre to see its stock and price.';
+  form.querySelector('[data-bill-stock]').textContent=product
+    ?`${product.stockQty||0} tyres in stock`
+    :(matching.length>1?'Choose the exact tyre variant to avoid deducting the wrong stock.':
+      'Choose a tyre to see its stock and price.');
   form.elements.price.value=product?formatted(product.pricePaise):'';
   form.elements.qty.max=product?.stockQty||'';
   form.querySelector('button').disabled=!(product?.stockQty>0);
 }
-

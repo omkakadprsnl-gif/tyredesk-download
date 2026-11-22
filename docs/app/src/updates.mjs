@@ -1,4 +1,4 @@
-export const WEB_VERSION='1.3.9';
+export const WEB_VERSION='1.3.10';
 
 function newerVersion(candidate,current){
   if(!/^\d+\.\d+\.\d+$/.test(candidate))return false;

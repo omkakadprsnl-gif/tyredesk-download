@@ -32,8 +32,12 @@ jobs:
           node --check docs/app/sw.js
       - name: Check reminders, ledger, stock and backups
         run: npm test
+      - name: Test shop-defined tyre stock keys and legacy history
+        run: node tests/tyre-classification.test.mjs
       - name: Verify financial edge cases and database authorization
         run: npm run test:audit
+      - name: Validate SQL migration for custom tyre variant identities
+        run: node tests/tyre-classification-db.test.mjs
       - name: Install browser
         run: npx playwright install --with-deps chromium
       - name: Check mobile billing and offline inventory
@@ -46,4 +50,6 @@ jobs:
         run: node tests/signin-layout.test.mjs
       - name: Verify inventory modes and responsive billing
         run: node tests/mobile-inventory.test.mjs
+      - name: Test custom tyre classification and billing on narrow screens
+        run: node tests/tyre-classification.browser.test.mjs
 

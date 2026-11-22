@@ -1,4 +1,4 @@
-import {inventoryCategories,productCategory,isStockProduct} from './tyres.mjs';
+import {inventoryCategories,productCategory,isStockProduct,isVariantTyre,tyreSearchText,tyreFields,stockKeyFields} from './tyres.mjs';
 import {initUpdates,checkUpdates,installAppUpdate,updateStatus} from './updates.mjs';
 import {inventoryMode,tyreName} from './tyres.mjs';
 import {modeChoices,purchaseFields,updatePurchaseFields,tyrePicker,updateTyrePicker} from './tyre-ui.mjs';
@@ -247,7 +247,7 @@ function outstandingPayments(){
 
 const shopCategories=()=>inventoryCategories(state.data.settings);
 const customProducts=()=>state.data.catalog.filter(p=>p.type==='product'&&p.isActive!==false);
-const stockName=p=>p.type==='tyre'?tyreName(p,shopMode()):p.name;
+const stockName=p=>p.type==='tyre'?tyreName(p,shopMode(),state.data.settings):p.name;
 const activeTyres=()=>state.data.catalog.filter(p=>p.type==='tyre'&&p.isActive!==false);
 const shopMode=()=>inventoryMode(state.data.settings,state.data.catalog);
 function purchaseHistory(){
@@ -260,7 +260,7 @@ function purchaseHistory(){
 }
 function inventory(){
  const allTyres=activeTyres(), mode=shopMode();
- const products=allTyres.filter(p=>!state.search||[tyreName(p,mode),p.supplier].some(v=>String(v||'').toLowerCase().includes(state.search.toLowerCase()))).sort((a,b)=>a.name.localeCompare(b.name));
+ const products=allTyres.filter(p=>!state.search||tyreSearchText(p,mode,state.data.settings).includes(state.search.toLowerCase())).sort((a,b)=>stockName(a).localeCompare(stockName(b)));
  const tracked=allTyres;
  const low=tracked.filter(p=>(p.stockQty||0)<=p.lowStockAt);
  const value=tracked.reduce((n,p)=>n+(p.stockQty||0)*(p.costPaise||0),0);
@@ -269,7 +269,7 @@ function inventory(){
  +`<div class="inventory-buy-guide"><div class="inventory-buy-guide-icon">${I('plus')}</div><div><strong>${T('addTyres')}</strong><p>${T('oneStockActionHelp')}</p></div></div>`
  +`<div class="stats inventory-stats">${statCard(T('tyresInStock'),tracked.reduce((n,p)=>n+(p.stockQty||0),0),'wheel','green',T('trackedQuantity'))}${statCard(T('lowStock'),low.length,'alert','orange',T('itemsNeedStock'))}${statCard(T('stockValue'),M(value),'money','blue',T('basedOnCost'))}</div>`
  +`<div class="toolbar"><div class="searchbar">${I('search')}<input id="page-search" value="${E(state.search)}" placeholder="${E(T('searchInventory'))}"></div><span class="badge gray">${products.length} ${T('tyres').toLowerCase()}</span></div>`
- +`<section class="panel"><div class="panel-header"><div><h3>${T('tyreProducts')}</h3><small>${T('stockUpdatedOnSale')}</small></div></div>${products.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Tyre</th><th>${T('currentStockColumn')}</th><th>${T('purchaseCost')}</th><th>${T('price')}</th><th>${T('status')}</th><th></th></tr></thead><tbody>${products.map(p=>`<tr><td><span class="number">${E(tyreName(p,mode))}</span><span class="subtext">${E(p.supplier||'')}</span></td><td class="number">${p.stockQty||0}</td><td>${M(p.costPaise||0)}</td><td class="number">${M(p.pricePaise)}</td><td>${(p.stockQty||0)<=p.lowStockAt?`<span class="badge rose">${T('lowStock')}</span>`:`<span class="badge green">${T('inStock')}</span>`}</td><td><div class="inventory-actions"><button class="button small" data-restock="${E(p.id)}">Restock</button><button class="button small" data-edit-price="${E(p.id)}">${T('edit')}</button><button class="button small" data-stock-adjust="${E(p.id)}">${T('correctStock')}</button></div></td></tr>`).join('')}</tbody></table></div>`:empty(T('noTyres'),T('newTyreHelp'),'database')}</section>`
+ +`<section class="panel"><div class="panel-header"><div><h3>${T('tyreProducts')}</h3><small>${T('stockUpdatedOnSale')}</small></div></div>${products.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Tyre</th><th>${T('currentStockColumn')}</th><th>${T('purchaseCost')}</th><th>${T('price')}</th><th>${T('status')}</th><th></th></tr></thead><tbody>${products.map(p=>`<tr><td><span class="number">${E(tyreName(p,mode,state.data.settings))}</span><span class="subtext">${E(p.supplier||'')}</span></td><td class="number">${p.stockQty||0}</td><td>${M(p.costPaise||0)}</td><td class="number">${M(p.pricePaise)}</td><td>${(p.stockQty||0)<=p.lowStockAt?`<span class="badge rose">${T('lowStock')}</span>`:`<span class="badge green">${T('inStock')}</span>`}</td><td><div class="inventory-actions"><button class="button small" data-restock="${E(p.id)}">Restock</button><button class="button small" data-edit-price="${E(p.id)}">${T('edit')}</button><button class="button small" data-stock-adjust="${E(p.id)}">${T('correctStock')}</button></div></td></tr>`).join('')}</tbody></table></div>`:empty(T('noTyres'),T('newTyreHelp'),'database')}</section>`
  +customInventory()
  +purchaseHistory()
  +`<section class="panel inventory-history"><div class="panel-header"><div><h3>${T('stockHistory')}</h3><small>${T('allMovements')}</small></div></div>${history.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>${T('date')}</th><th>${T('description')}</th><th>${T('type')}</th><th>${T('qty')}</th><th>${T('notes')}</th></tr></thead><tbody>${history.map(h=>`<tr><td>${fmtDate(h.createdAt,true)}</td><td><strong>${E(h.productName)}</strong></td><td>${E(h.type)}</td><td class="number ${h.delta<0?'stock-negative':'stock-positive'}">${h.delta>0?'+':''}${h.delta}</td><td>${E(h.note||'—')}</td></tr>`).join('')}</tbody></table></div>`:empty(T('noMovements'),T('startInventory'),'database')}</section>`;
@@ -299,7 +299,7 @@ function lineMarkup(line){
    <button type="button" class="button small" data-remove-line="${E(line.key)}">Remove item</button>
   </div></details>`;
 }
-function billing(){const b=state.bill||((startBill()),state.bill);const prices=state.data.catalog.filter(p=>p.isActive!==false&&p.type==='service');const hidden=canBill()?'':'hidden';return header(b.editing?'Edit invoice':'New bill','', '',`${b.editing?'<button type="button" class="button" data-action="discard-invoice-edit">Discard changes</button>':`<button type="button" class="button primary" data-action="draft-show-qr" data-billing-editor ${hidden}>Show payment QR</button>`}<button class="button" data-nav="sales">${I('receipt')}${T('allInvoices')}</button>`)+billingPanel()+`<div class="bill-layout" data-billing-editor ${hidden}><div class="bill-main"><section class="bill-section"><div class="bill-section-title"><h2>${T('customerDetails')}</h2><small>${T('newCustomerHint')}</small></div>${b.selectedCustomerId?renderSelectedCustomer():`<div class="field form-section customer-lookup-field"><label for="customer-lookup">${T('searchCustomer')}</label><div class="searchbar" style="max-width:none;width:100%;height:46px">${I('search')}<input id="customer-lookup" autocomplete="off" value="${E(b.customerQuery)}" placeholder="${E(T('searchPlaceholder'))}"></div><div id="customer-suggestions"></div><small>${T('customerLookupHelp')}</small></div><div class="field-grid"><div class="field"><label for="bill-customer-name">${T('name')}</label><input id="bill-customer-name" value="${E(b.customerName)}" placeholder="e.g. Rahul Patil"></div><div class="field"><label for="bill-customer-phone">${T('phone')} <span class="optional">(${T('optional')})</span></label><input id="bill-customer-phone" type="tel" inputmode="tel" value="${E(b.customerPhone)}" placeholder="10-digit mobile number"></div></div>`}<div class="field" style="margin-top:17px"><label for="bill-vehicle">${T('newVehicle')}</label><input id="bill-vehicle" value="${E(b.vehicle)}" placeholder="MH 21 AB 1234" style="text-transform:uppercase" maxlength="18"></div></section><section class="bill-section"><div class="bill-section-title"><h2>${T('invoiceItems')}</h2></div><h3>Tyres</h3>${shopMode()?tyrePicker(shopMode(),activeTyres()):'<button type="button" class="button" data-action="inventory-mode-settings">Choose inventory mode</button>'}
+function billing(){const b=state.bill||((startBill()),state.bill);const prices=state.data.catalog.filter(p=>p.isActive!==false&&p.type==='service');const hidden=canBill()?'':'hidden';return header(b.editing?'Edit invoice':'New bill','', '',`${b.editing?'<button type="button" class="button" data-action="discard-invoice-edit">Discard changes</button>':`<button type="button" class="button primary" data-action="draft-show-qr" data-billing-editor ${hidden}>Show payment QR</button>`}<button class="button" data-nav="sales">${I('receipt')}${T('allInvoices')}</button>`)+billingPanel()+`<div class="bill-layout" data-billing-editor ${hidden}><div class="bill-main"><section class="bill-section"><div class="bill-section-title"><h2>${T('customerDetails')}</h2><small>${T('newCustomerHint')}</small></div>${b.selectedCustomerId?renderSelectedCustomer():`<div class="field form-section customer-lookup-field"><label for="customer-lookup">${T('searchCustomer')}</label><div class="searchbar" style="max-width:none;width:100%;height:46px">${I('search')}<input id="customer-lookup" autocomplete="off" value="${E(b.customerQuery)}" placeholder="${E(T('searchPlaceholder'))}"></div><div id="customer-suggestions"></div><small>${T('customerLookupHelp')}</small></div><div class="field-grid"><div class="field"><label for="bill-customer-name">${T('name')}</label><input id="bill-customer-name" value="${E(b.customerName)}" placeholder="e.g. Rahul Patil"></div><div class="field"><label for="bill-customer-phone">${T('phone')} <span class="optional">(${T('optional')})</span></label><input id="bill-customer-phone" type="tel" inputmode="tel" value="${E(b.customerPhone)}" placeholder="10-digit mobile number"></div></div>`}<div class="field" style="margin-top:17px"><label for="bill-vehicle">${T('newVehicle')}</label><input id="bill-vehicle" value="${E(b.vehicle)}" placeholder="MH 21 AB 1234" style="text-transform:uppercase" maxlength="18"></div></section><section class="bill-section"><div class="bill-section-title"><h2>${T('invoiceItems')}</h2></div><h3>Tyres</h3>${shopMode()?tyrePicker(shopMode(),activeTyres(),state.data.settings):'<button type="button" class="button" data-action="inventory-mode-settings">Choose inventory mode</button>'}
  ${customBillPicker()}
  <h3>Services</h3>${prices.length?`<label class="field">Saved services<select id="bill-service"><option value="">Choose a service</option>${prices.map(p=>`<option value="${E(p.id)}">${E(p.name)} · ${M(p.pricePaise)}</option>`).join('')}</select></label>`:''}
  <div id="bill-lines">${b.lines.length?b.lines.map(lineMarkup).join(''):`<div class="empty compact"><div class="empty-icon">${I('plus')}</div><h3>${T('noItems')}</h3></div>`}</div><button type="button" class="bill-add" data-action="add-line">${I('plus')}Add a service</button></section><section class="bill-section"><div class="bill-section-title"><h2>${T('payments')} & ${T('discount')}</h2></div><div class="field-grid"><div class="field"><label>${T('billDiscount')}</label><div style="display:flex;gap:8px"><input id="bill-discount-value" type="number" min="0" step="0.01" value="${E(b.billDiscountValue)}"><select id="bill-discount-type" style="width:90px"><option value="fixed" ${b.billDiscountType==='fixed'?'selected':''}>₹</option><option value="percent" ${b.billDiscountType==='percent'?'selected':''}>%</option></select></div></div><div class="field"><label for="bill-paid">${T('paid')} (₹)</label><input id="bill-paid" type="number" min="0" step="0.01" value="${E(b.paid)}"></div><div class="field"><label for="bill-method">${T('paymentMethod')}</label><select id="bill-method"><option value="cash" ${b.method==='cash'?'selected':''}>${T('cash')}</option><option value="upi" ${b.method==='upi'?'selected':''}>${T('upi')}</option><option value="card" ${b.method==='card'?'selected':''}>${T('card')}</option><option value="other" ${b.method==='other'?'selected':''}>${T('other')}</option></select></div><div class="field"><label for="bill-reference">${T('reference')} <span class="optional">(${T('optional')})</span></label><input id="bill-reference" value="${E(b.paymentReference)}" placeholder="UPI / transaction ID"></div>${state.data.settings.gstRegistered?`<div class="field field-spread"><label for="bill-supply">${T('supplyType')}</label><select id="bill-supply"><option value="intra" ${b.supplyMode==='intra'?'selected':''}>${T('intraState')}</option><option value="inter" ${b.supplyMode==='inter'?'selected':''}>${T('interState')}</option></select><small>${T('taxWarning')}</small></div>`:''}<div class="field field-spread"><label for="bill-notes">${T('notes')} <span class="optional">(${T('optional')})</span></label><textarea id="bill-notes" rows="2" placeholder="Thank you / customer instructions…">${E(b.notes)}</textarea></div></div></section></div><aside class="bill-summary"><div class="summary-card"><div class="summary-head"><strong>Bill summary</strong></div><div id="bill-summary-dynamic"></div><section id="bill-payment-qr" aria-label="Shop payment QR"></section><button class="button primary large" id="save-bill" data-action="save-bill">${I('checkcircle')}${b.editing?'Save changes':T('saveAndView')}${I('arrow')}</button><div class="summary-hint">${I('shield')}<span>New customer profiles are created when the bill is saved.</span></div></div></aside></div>`;}
@@ -379,23 +379,37 @@ function modalButtons(submitId,label=T('save')){return `<button class="button" d
 function showCustomerModal(c=null){const vehicles=c?state.data.vehicles.filter(v=>v.customerId===c.id):[];const orders=c?activeOrders().filter(o=>o.customerId===c.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)):[];const spend=orders.reduce((n,o)=>n+o.totals.grandPaise,0),due=orders.reduce((n,o)=>n+o.duePaise,0);
  const body=`${c?`<div class="customer-metrics"><div class="customer-metric"><small>${T('customerSpend')}</small><strong>${M(spend)}</strong></div><div class="customer-metric"><small>${T('customerDue')}</small><strong>${M(due)}</strong></div><div class="customer-metric"><small>${T('invoices')}</small><strong>${orders.length}</strong></div></div>`:''}<form id="customer-form" data-id="${c?.id||''}"><div class="field-grid"><div class="field"><label>${T('name')}</label><input name="name" value="${E(c?.name||'')}" placeholder="Customer name"></div><div class="field"><label>${T('phone')}</label><input name="phone" type="tel" value="${E(c?.phone||'')}" placeholder="Contact number"></div><div class="field field-spread"><label>${T('newVehicle')}</label><input name="vehicle" placeholder="MH 21 AB 1234" value="" /><small>${c?`Current vehicles: ${E(vehicles.map(v=>v.reg).join(', ')||'none')}`:'A new vehicle can be linked here, or when creating an invoice.'}</small></div><div class="field field-spread"><label>${T('notes')}</label><textarea name="notes">${E(c?.notes||'')}</textarea></div></div></form>${c&&orders.length?`<div class="separator"></div><div class="form-section-heading"><h3>${T('customerHistory')}</h3></div><div class="detail-list">${orders.slice(0,12).map(o=>`<button class="detail-row" style="border:0;border-bottom:1px solid var(--border);background:none;width:100%;text-align:left;cursor:pointer;color:var(--ink)" data-invoice="${E(o.id)}"><span>${E(o.number)} · ${fmtDate(o.createdAt,true)}</span><strong>${M(o.totals.grandPaise)}</strong></button>`).join('')}</div>`:''}`;
  modal(c?T('customerDetails'):T('newCustomer'),c?`${E(c.name||c.phone)} · ${E(c.phone||'')}`:T('newCustomerHint'),body,modalButtons('customer-form'));}
-function categoryFields(category,item){
- return (category?.fields||[]).map(field=>`<label class="field">${E(field.label)}<input name="attribute-${E(field.id)}" maxlength="160" value="${E(item?.attributes?.[field.id]||'')}"></label>`).join('');
+function categoryFields(category,item,requireStockKeys=false){
+ return (category?.fields||[]).map(field=>`<label class="field">${E(field.label)}<input name="attribute-${E(field.id)}" maxlength="160" ${requireStockKeys&&field.stockKey?'required':''} value="${E(item?.attributes?.[field.id]||'')}"></label>`).join('');
 }
 function submittedAttributes(data){
  return Object.fromEntries([...data].filter(([name])=>name.startsWith('attribute-')).map(([name,value])=>[name.slice(10),value]));
 }
 function categoriesPanel(){
- return `<section class="setting-panel"><h2>Inventory categories</h2><p>Choose the optional fields to show for each category.</p>
- <ul class="settings-services">${shopCategories().map(c=>`<li><span>${E(c.name)}</span><button type="button" class="button small" data-action="edit-category" data-category="${E(c.id)}">Edit</button></li>`).join('')}</ul>
- <button type="button" class="button" data-action="edit-category">Add category</button></section>`;
+ const others=shopCategories().filter(c=>c.id!=='tyres');
+ return `<section class="setting-panel">
+  <h2>Tyre classification</h2>
+  <p>Add extra details such as Load Index, Ply Rating or Construction. If two tyres with the same brand, model and size must be separate stock records, mark that field <strong>Separate tyre variants</strong>. Previously purchased tyres are never merged automatically.</p>
+  <button type="button" class="button" data-action="edit-category" data-category="tyres">Manage tyre fields</button>
+  ${others.length?`<p class="small-muted">Earlier custom product categories are preserved for compatibility:</p>
+   <ul class="settings-services">${others.map(c=>`<li><span>${E(c.name)}</span><button type="button" class="button small" data-action="edit-category" data-category="${E(c.id)}">Edit</button></li>`).join('')}</ul>`:''}
+ </section>`;
 }
 function showCategoryModal(category){
  const fields=category?.fields||[];
- const input=field=>`<label class="field">Field name<input name="field" maxlength="60" value="${E(field?.label||'')}" ${field?'required':''}></label>`;
- modal(category?'Edit category':'Add category','',`<form id="category-form" data-id="${E(category?.id||'')}">
-  <label class="field">Category name<input name="name" maxlength="60" required value="${E(category?.name||'')}" ${category?.id==='tyres'?'readonly':''}></label>
-  <div class="field-grid" data-category-fields>${fields.map(input).join('')}${fields.length<12?input():''}</div>
+ const tyre=category?.id==='tyres';
+ const locked=tyre&&activeTyres().some(isVariantTyre);
+ const input=(field,index)=>`<div class="field field-spread">
+   <label>Field name<input name="field" maxlength="60" value="${E(field?.label||'')}" ${field?'required':''} placeholder="e.g. Load Index"></label>
+   ${tyre?`<label class="consent"><input type="checkbox" name="stockKeyIndex" value="${index}"
+      ${field?.stockKey?'checked':''} ${locked?'disabled':''}> Separate tyre variants by this field</label>`:''}
+  </div>`;
+ modal(tyre?'Manage tyre classification':'Edit existing category','',
+ `<form id="category-form" data-id="${E(category?.id||'')}" data-locked="${locked?'yes':'no'}">
+  <label class="field">Category name<input name="name" maxlength="60" required value="${E(category?.name||'')}" ${tyre?'readonly':''}></label>
+  ${tyre?`<p class="small-muted">Checked fields distinguish tyre stock when purchasing and billing. Leave unchecked for notes or searchable details. Existing tyres without values remain unclassified until you assign them.</p>`:''}
+  ${locked?'<p class="small-muted">Stock variant identifiers are locked after classified tyres exist. Field names may still be edited.</p>':''}
+  <div class="field-grid" data-category-fields>${fields.map(input).join('')}${fields.length<12?input(null,fields.length):''}</div>
   ${fields.length<11?'<button type="button" class="button small" data-action="add-category-field">Add field</button>':''}
  </form>`,modalButtons('category-form'));
 }
@@ -442,10 +456,12 @@ function servicesSettingsPanel(){
 function showPriceModal(p=null){
  const tyre=p?.type==='tyre';
  const body=`<form id="price-form" data-id="${E(p?.id||'')}" data-type="${tyre?'tyre':'service'}"><div class="field-grid">
-  ${tyre?`<p class="field-spread"><strong>${E(tyreName(p,shopMode()))}</strong> · Current stock ${p.stockQty||0}</p>`:`<label class="field field-spread">Service name<input name="name" maxlength="150" required value="${E(p?.name||'')}"></label>`}
+  ${tyre?`<p class="field-spread"><strong>${E(tyreName(p,shopMode(),state.data.settings))}</strong> · Current stock ${p.stockQty||0}</p>`:`<label class="field field-spread">Service name<input name="name" maxlength="150" required value="${E(p?.name||'')}"></label>`}
   <label class="field">Selling price (₹)<input name="price" type="number" min="0" step="0.01" required value="${amountField(p?.pricePaise)}"></label>
   <label class="field">GST (%)<input name="taxRate" type="number" min="0" max="100" step="0.01" value="${p?.taxBps?p.taxBps/100:0}"></label>
   ${tyre?categoryFields(productCategory(state.data.settings,p),p):''}
+  ${tyre&&stockKeyFields(state.data.settings).length&&!isVariantTyre(p)?'<p class="small-muted field-spread">This is existing unclassified tyre stock. Enter all stock-identifying fields to classify it without changing its historical ID.</p>':''}
+  ${tyre&&isVariantTyre(p)?'<p class="small-muted field-spread">Stock identity is locked for this variant. To change it, create a different tyre entry and reconcile stock deliberately.</p>':''}
   ${tyre?`<label class="field">Low stock warning at<input name="lowStockAt" type="number" min="0" step="1" value="${p.lowStockAt??5}"></label>`:
     `<label class="field-spread consent"><input type="checkbox" name="activeService" ${p?.isActive===false?'':'checked'}> Show this service on new invoices</label>`}
  </div></form>`;
@@ -462,9 +478,9 @@ function showStockModal(product=null,kind='purchase'){
   }
   const mode=shopMode();
   if(!mode){nav('settings');$('#inventory-mode-form')?.scrollIntoView({block:'center'});return;}
-  const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product)}${!product?`<div class="field-grid">${categoryFields(shopCategories()[0])}</div>`:''}</form>`;
+  const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product,state.data.settings)}${!product?`<div class="field-grid">${categoryFields(shopCategories()[0],null,true)}</div>`:''}</form>`;
   modal(product?'Restock tyres':'Add purchased tyres','',body,modalButtons('purchase-form','Save purchase'),false,'purchase-dialog');
-  if(!product)updatePurchaseFields($('#purchase-form'),mode,activeTyres());
+  if(!product)updatePurchaseFields($('#purchase-form'),mode,activeTyres(),'',state.data.settings);
   return;
  }
  if(!isStockProduct(product))return;
@@ -488,7 +504,7 @@ function billStock(product){
 }
 function updateBillPicker(changed){
  const form=$('#tyre-bill-form');
- if(form)updateTyrePicker(form,shopMode(),activeTyres().map(p=>({...p,stockQty:billStock(p)})),changed);
+ if(form)updateTyrePicker(form,shopMode(),activeTyres().map(p=>({...p,stockQty:billStock(p)})),changed,state.data.settings);
 }
 function showExpenseModal(){const body=`<form id="expense-form"><div class="field-grid"><div class="field"><label>${T('amount')} (₹) *</label><input name="amount" type="number" step="0.01" min="0.01" required placeholder="0.00" autofocus></div><div class="field"><label>${T('date')}</label><input name="date" type="date" value="${todayISO()}" max="${todayISO()}"></div><div class="field"><label>${T('category')}</label><select name="category"><option>Rent</option><option>Electricity</option><option>Employee salary</option><option>Maintenance</option><option>Supplies</option><option>Transport</option><option>Other</option></select></div><div class="field"><label>${T('paymentMethod')}</label><select name="method"><option value="cash">${T('cash')}</option><option value="upi">${T('upi')}</option><option value="card">${T('card')}</option><option value="other">${T('other')}</option></select></div><div class="field field-spread"><label>${T('description')}</label><textarea name="description" placeholder="What was this expense for?"></textarea></div></div></form>`;modal(T('recordExpense'),T('expensesSubtitle'),body,modalButtons('expense-form',T('saveExpense')));}
 function showPaymentModal(o){const body=`<div class="muted-note note-inline">${I('info')}<span>${E(o.number)} · ${E(o.customerSnapshot.name||'')} · ${T('due')}: <b>${M(o.duePaise)}</b></span></div><form id="payment-form" data-id="${E(o.id)}" data-confirmation="${uid()}" style="margin-top:21px"><div class="field-grid"><div class="field"><label>${T('amount')} (₹)</label><input name="amount" type="number" min="0.01" step="0.01" max="${amountField(o.duePaise)}" value="${amountField(o.duePaise)}" required></div><div class="field"><label>${T('paymentMethod')}</label><select name="method"><option value="cash">${T('cash')}</option><option value="upi">${T('upi')}</option><option value="card">${T('card')}</option><option value="other">${T('other')}</option></select></div><div class="field field-spread"><label>${T('reference')}</label><input name="reference" placeholder="Transaction reference (optional)"></div></div></form>`;modal(T('collectPayment'),'',body,modalButtons('payment-form',T('collectPayment')));}
@@ -547,16 +563,17 @@ async function doAction(action,target){switch(action){
  case 'edit-category':showCategoryModal(shopCategories().find(c=>c.id===target.dataset.category));return;
  case 'add-category-field':{
    const host=$('[data-category-fields]');
-   if(host.children.length<12)host.insertAdjacentHTML('beforeend','<label class="field">Field name<input name="field" maxlength="60"></label>');
+   if(host.children.length<12)host.insertAdjacentHTML('beforeend',`<div class="field field-spread"><label>Field name<input name="field" maxlength="60" placeholder="e.g. Ply Rating"></label>${$('#category-form')?.dataset.id==='tyres'?`<label class="consent"><input type="checkbox" name="stockKeyIndex" value="${host.children.length}" ${$('#category-form')?.dataset.locked==='yes'?'disabled':''}> Separate tyre variants by this field</label>`:''}</div>`);
    host.lastElementChild.querySelector('input').focus();
    target.hidden=host.children.length>=12;return;
  }
  case 'edit-stock-product':showCustomProductModal(shopCategories().find(c=>c.id===target.dataset.category),customProducts().find(p=>p.id===target.dataset.product));return;
  case 'buy-tyres':showStockModal(null,'purchase');return;
  case 'export-inventory':{
-   const mode=shopMode(),details=mode!=='simple';
-   const rows=activeTyres().map(p=>[p.brand||p.name,...(details?[p.model,p.size]:[]),p.stockQty||0,fromPaise(p.costPaise),fromPaise(p.pricePaise)]);
-   saveBlob(toCSV(['Brand',...(details?['Model','Size']:[]),'Current stock','Cost INR','Price INR'],rows),`TyreDesk-inventory-${todayISO()}.csv`,'text/csv;charset=utf-8');return;
+   const mode=shopMode(),details=mode!=='simple',fields=tyreFields(state.data.settings);
+   const rows=activeTyres().map(p=>[p.brand||p.name,...(details?[p.model,p.size]:[]),
+     ...fields.map(field=>p.attributes?.[field.id]||''),p.stockQty||0,fromPaise(p.costPaise),fromPaise(p.pricePaise)]);
+   saveBlob(toCSV(['Brand',...(details?['Model','Size']:[]),...fields.map(f=>f.label),'Current stock','Cost INR','Price INR'],rows),`TyreDesk-inventory-${todayISO()}.csv`,'text/csv;charset=utf-8');return;
  }
  case 'add-expense':showExpenseModal();return;
  case 'clear-customer':delete state.bill.selectedCustomer;state.bill.selectedCustomerId=null;state.bill.customerQuery='';state.bill.customerName='';state.bill.customerPhone='';render();return;
@@ -666,7 +683,10 @@ async function runForm(form){const f=new FormData(form);const v=k=>String(f.get(
    form.reset();updateBillPicker();return;
  }
  if(form.id==='category-form'){
-   await saveInventoryCategory(form.dataset.id,v('name'),f.getAll('field'));
+   const selected=form.dataset.id==='tyres'
+     ?(form.dataset.locked==='yes'?stockKeyFields(state.data.settings).map(key=>tyreFields(state.data.settings).findIndex(f=>f.id===key.id))
+       :f.getAll('stockKeyIndex').map(Number)):undefined;
+   await saveInventoryCategory(form.dataset.id,v('name'),f.getAll('field'),selected);
    await refresh();closeModal();toast('Category saved');return;
  }
  if(form.id==='custom-product-form'){
@@ -730,7 +750,7 @@ document.addEventListener('input',event=>{
  const target=event.target;
  const purchase=target.closest('#purchase-form');
  if(purchase&&!purchase.dataset.product){
-   if(['brand','model','size'].includes(target.name))updatePurchaseFields(purchase,shopMode(),activeTyres(),target.name);
+   if(['brand','model','size'].includes(target.name)||target.name.startsWith('attribute-'))updatePurchaseFields(purchase,shopMode(),activeTyres(),target.name,state.data.settings);
    if(['cost','price'].includes(target.name))target.dataset.edited='yes';
    return;
  }
@@ -746,11 +766,11 @@ document.addEventListener('change',async event=>{const el=event.target;try{
    const manual=el.value==='__new__';
    input.value=manual?'':el.value;
    if(manual)input.dataset.manual='yes';else delete input.dataset.manual;
-   updatePurchaseFields(form,shopMode(),activeTyres(),key);
+   updatePurchaseFields(form,shopMode(),activeTyres(),key,state.data.settings);
    if(manual)input.focus();
    return;
  }
- if(el.closest('#tyre-bill-form')&&['brand','model','size','exact'].includes(el.name)){updateBillPicker(el.name);return;}
+ if(el.closest('#tyre-bill-form')&&(['brand','model','size','exact'].includes(el.name)||el.dataset.stockField)){updateBillPicker(el.dataset.stockField?'stock-field-'+el.dataset.stockField:el.name);return;}
  if(el.id==='bill-product'){
    const product=customProducts().find(item=>item.id===el.value);
    el.value='';

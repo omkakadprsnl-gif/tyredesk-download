@@ -1,3 +1,9 @@
+# TyreDesk 1.3.10 — Custom tyre classification
+
+Shop owners can add tyre-specific fields such as Load Index, Ply Rating or Construction and choose which fields distinguish otherwise identical tyre stock. Purchasing creates separate stock records for distinct variants, while billing requires explicit variant selection when necessary. Tyre searches and CSV exports now include the additional classification fields. Existing stock IDs, invoices, purchases and backups are preserved. Older unclassified stock is not merged into new variants and can be classified deliberately by editing its attributes. Once distinct variants exist, the stock-identity fields are locked to prevent accidental mergers.
+
+**Database prerequisite:** Apply the paired `tyre_custom_variant_identity_20261123` migration to each shop's Supabase project before allowing v1.3.10 to create classified variants. For an existing shop, upgrade all devices before using custom variant stock; do not uninstall the application.
+
 # TyreDesk 1.3.9
 
 Create inventory categories and optional fields in Settings. Add stock under the new category, enter its fields and select the product when billing. Tyres keep their existing inventory flow and support additional fields. Update every device for the shop before using custom stock categories.
