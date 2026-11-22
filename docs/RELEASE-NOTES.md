@@ -1,3 +1,11 @@
+# TyreDesk 1.3.5
+
+Removed the shop logo upload field. New invoices no longer copy shop logo images. Invoices omit temporary calculation and editor fields while retaining item prices, totals, GST breakdowns and financial history. Previously issued invoices remain readable, and data is preserved when the signed APK is installed over 1.3.4.
+
+APK SHA-256: `d9029d7c685cd0c030a21c5d99abd2a3a1868a16a71116052e4b26f17ea66e49`
+
+Play Protect's earlier Android 16 warning remains under investigation. Do not disable Play Protect to install an APK that Android identifies as harmful.
+
 # TyreDesk 1.3.4
 
 New shops can add services such as wheel alignment and balancing during setup. Open **Settings → Services** to add, edit or hide services and set default prices. Select a saved service on a new invoice and adjust its rate for that sale if needed.
