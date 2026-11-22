@@ -1,5 +1,5 @@
 import {GoTrueClient} from '../vendor/auth.mjs';
-import {bindCloud,localCloud,setBillingState,snapshot,applyCloud,pendingWrite,stageWrite,clearWrite} from './cloud-store.mjs';
+import {bindCloud,localCloud,setBillingProtocol,setBillingState,snapshot,applyCloud,pendingWrite,stageWrite,clearWrite} from './cloud-store.mjs';
 import {get,getSetting,put,remove} from './db.mjs';
 import {reconcile,changes,rowKey,cloudRecord,SyncConflict} from './cloud-merge.mjs';
 
@@ -153,7 +153,7 @@ const withSyncLock=run=>navigator.locks?navigator.locks.request('tyredesk-sync',
 const billingRpc=(action,billing,extra)=>rpc('billing_'+action,{device_token:deviceToken(),grant_token:billing?.token??null,...extra});
 async function refreshBilling(online=false){
   const device=await localCloud();
-  let access=device?.billing?.phase||(device?'view':null);
+  let access=device?.billing?.phase||(device&&device.billingProtocol!==false?'view':null);
   if(!device&&await get('cloudState','backupBinding'))access='disconnected';
   if(online&&access==='view'){
     try{if(await billingRpc('status')==='busy')access='busy';}catch{}
@@ -185,6 +185,7 @@ export function startBilling(){
   return billingAction(async()=>{
     const device=await localCloud();
     if(!device)throw Error('Sign in to start billing.');
+    if(device.billingProtocol===false)return;
     if(device.billing?.phase==='active')return;
     if(device.billing?.phase==='switching')throw Error('Wait for the billing handover to finish.');
     const billing=device.billing||{phase:'claiming',token:crypto.randomUUID()};
@@ -249,9 +250,16 @@ async function remoteView(base,revision,head){
   return records;
 }
 async function cycle(useCloud=false){
-  const d=await localCloud();if(!d)return;
-  if(useCloud&&d.billing)throw Error('Finish and switch billing before replacing this device’s records.');
+  let d=await localCloud();if(!d)return;
+  if(useCloud&&d.billing)throw Error('Billing must be released before replacing this device’s records.');
   if(!navigator.onLine){status('Connection unavailable. Saved changes will sync when you reconnect.');return;}
+  let firstHead=await rpc('head');
+  const protocol=firstHead.billingHandover===true;
+  if(d.billingProtocol!==protocol&&d.billingProtocol!==true){
+    await setBillingProtocol(protocol);
+    d=await localCloud();
+    await refreshBilling();
+  }
   for(let attempt=0;attempt<5;attempt++){
     const token=deviceToken();
     const pending=await pendingWrite();
@@ -266,7 +274,8 @@ async function cycle(useCloud=false){
       }
       // An interrupted request may still reach the database. Reuse its token and
       // exact payload until the server definitively accepts or rejects the revision.
-      const head=await rpc('head');
+      const head=firstHead||await rpc('head');
+      firstHead=null;
       if(head.revision===pending.expected){
         const rev=await commitBilling(d,pending);
         if(rev>=0)continue;
@@ -274,7 +283,8 @@ async function cycle(useCloud=false){
       await clearWrite();
       continue;
     }
-    const head=await rpc('head');
+    const head=firstHead||await rpc('head');
+    firstHead=null;
     databaseBytes=head.databaseBytes;
     const device=await localCloud();
     if(!useCloud&&device.revision===head.revision&&device.cleanGeneration===device.generation){
@@ -310,11 +320,14 @@ async function cycle(useCloud=false){
   status('Changes are still arriving. TyreDesk will retry.');
 }
 function validateBillingGrant(device){
+  if(device.billingProtocol===false)return;
   if(!['active','switching'].includes(device.billing?.phase))
     throw Error('This device has changes from before billing access was set up. Export a backup and contact support to reconcile them.');
 }
 function commitBilling(device,pending){
   validateBillingGrant(device);
+  if(device.billingProtocol===false)return rpc('commit',{expected_revision:pending.expected,
+    changes:pending.outgoing,device_token:deviceToken(),write_token:pending.token});
   return billingRpc('commit',device.billing,{expected_revision:pending.expected,changes:pending.outgoing,write_token:pending.token});
 }
 export function syncCloud(useCloud=false){
@@ -333,7 +346,7 @@ function releaseIfUnused(){
 async function manageForegroundBilling(){
   if(!navigator.locks||!navigator.onLine||billingBusy)return;
   const device=await localCloud();
-  if(!usingApp()||!device||device.billing?.phase==='active')return;
+  if(!usingApp()||!device||device.billingProtocol===false||device.billing?.phase==='active')return;
   if(!(await setupClient().getSession()).data.session)return;
   if(device.billing?.phase==='switching')await finishBilling();
   if(usingApp())await startBilling();

@@ -50,6 +50,7 @@ export function getDatabase(){
   return dbPromise;
 }
 function requireBillingAccess(device,binding){
+  if(device?.billingProtocol===false)return;
   if(device?.billing?.phase==='switching')throw Error('Billing is switching devices. Finish the handover before making changes.');
   if((device||binding)&&device?.billing?.phase!=='active')
     throw Error('This device is view-only. Billing opens automatically when it is connected and access is available.');

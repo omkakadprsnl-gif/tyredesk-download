@@ -96,6 +96,7 @@ try{
  assert.equal(recovered.orders.length,2);assert.equal(recovered.reminders.length,0);assert.equal(recovered.payments.length,1);assert.equal(recovered.expenses.length,1);
  await fresh.close();
  const secondShop=mockShopAccount({ref:'bbbbbbbbbbbbbbbbbbbb',alias:'second',owner:'second-owner'});
+ secondShop.control.billingHandover=false;
  const secondContext=await browser.newContext({serviceWorkers:'block'});
  await secondShop.attach(secondContext);
  const second=await secondContext.newPage();await second.goto(url);
@@ -111,10 +112,21 @@ try{
   const c=await import('./src/cloud.mjs');
   await c.loginCloud({username:'second',password:'fixture-only',onboarding:true});
   await c.finishFirstSetup({id:'shop',name:'Independent second shop',createdAt:'2026-11-22',
-    pinHash:'local',pinSalt:'00',inventoryMode:'simple'});
+    pinHash:'local',pinSalt:'00',inventoryMode:'simple'},[
+      {id:'wheel-alignment',name:'Wheel alignment',type:'service',pricePaise:65000,trackStock:false,stockQty:0}
+  ]);
  });
  assert.equal((await data(third)).orders.length,0);
  assert.equal(secondShop.records.get('settings/shop').doc.name,'Independent second shop');
+ assert.equal(secondShop.records.get('catalog/wheel-alignment').doc.pricePaise,65000);
+ await expense(third);await sync(third);
+ assert.equal([...secondShop.records.values()].filter(row=>row.kind==='expenses').length,1);
+ secondShop.control.billingHandover=true;
+ await sync(third);
+ await assert.rejects(expense(third),/view-only/);
+ await handover(third,'startBilling');
+ await expense(third);await sync(third);
+ assert.equal([...secondShop.records.values()].filter(row=>row.kind==='expenses').length,2);
  assert.equal(records.get('settings/shop').doc.name,'Fixture');
  await handover(b,'finishBilling');
  await Promise.all([handover(a,'startBilling'),handover(b,'startBilling')]);

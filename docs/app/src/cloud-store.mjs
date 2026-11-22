@@ -2,6 +2,15 @@ import {transact,receivedDraft} from './db.mjs';
 import {SYNC_STORES,rowKey,cloudRecord,changes} from './cloud-merge.mjs';
 const req=r=>new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
 export const localCloud=()=>transact(['cloudState'],'readonly',tx=>req(tx.objectStore('cloudState').get('device')));
+export async function setBillingProtocol(enabled){
+  return transact(['cloudState'],'readwrite',async tx=>{
+    const state=tx.objectStore('cloudState');
+    const device=await req(state.get('device'));
+    // Keep enforcing billing access if a project temporarily serves an older API.
+    if(device&&device.billingProtocol!==true&&device.billingProtocol!==enabled)
+      await req(state.put({...device,billingProtocol:enabled}));
+  });
+}
 export async function setBillingState(billing,{requireSavedDraft=false}={}){
   return transact(['cloudState'],'readwrite',async tx=>{
     const state=tx.objectStore('cloudState');

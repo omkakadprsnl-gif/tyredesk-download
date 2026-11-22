@@ -9,6 +9,11 @@ grant update(billing_device,billing_token) on tyredesk.shop to tyredesk_rpc;
 alter function tyredesk.tyredesk_commit(bigint,jsonb,uuid,uuid) rename to commit_with_receipt;
 revoke all on function tyredesk.commit_with_receipt(bigint,jsonb,uuid,uuid) from public, anon, authenticated;
 
+create or replace function public.tyredesk_head() returns jsonb
+language sql security invoker set search_path='' as $$
+  select tyredesk.tyredesk_head() || jsonb_build_object('billingHandover',true);
+$$;
+
 -- The pre-handover endpoint may initialize an empty shop and its service list only.
 create function tyredesk.tyredesk_commit(expected_revision bigint, changes jsonb, device_token uuid, write_token uuid)
 returns bigint language plpgsql security definer set search_path='' as $$
