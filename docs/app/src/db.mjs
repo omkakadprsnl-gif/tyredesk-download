@@ -2,16 +2,20 @@ import {compactInvoiceLines} from './invoice-storage.mjs';
 import {prepareInvoiceEdit,trackedQuantities} from './stock-edit.mjs';
 import { inventoryMode, tyreIdentity, tyreName, tyreText } from './tyres.mjs';
 import {uid, normalizePhone, normalizeVehicle, safeText, calculateBill, calculateDue, todayISO} from './logic.mjs';
+import {SYNC_STORES,rowKey,cloudRecord,changes} from './cloud-merge.mjs';
 
 const DB_NAME='tyreflow-offline-v1';
 const DB_VERSION=6;
 const DRAFT_KEYS=()=>IDBKeyRange.bound('draft-','draft-\uffff');
 export const STORES = ['settings','customers','vehicles','catalog','orders','payments','expenses','audit','meta','inventoryMovements','purchases','reminders'];
+const SUMMARY_STORES=STORES.filter(name=>name!=='meta');
+const DASHBOARD_STORES=['settings','catalog','orders','payments','expenses','reminders'];
+const summaryCache=new Map();
 let dbPromise;
 const request = req => new Promise((resolve,reject) => { req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); });
 export function getDatabase(){
   if(!dbPromise) dbPromise = new Promise((resolve,reject)=>{
-    const open=indexedDB.open(DB_NAME,7);
+    const open=indexedDB.open(DB_NAME,8);
     open.onupgradeneeded=(event)=>{
       const db=open.result;
       const add=(store,defs=[])=>{ if(!db.objectStoreNames.contains(store)){const obj=db.createObjectStore(store,{keyPath:'id'}); defs.forEach(([n,k,u])=>obj.createIndex(n,k,{unique:!!u}));} };
@@ -21,6 +25,17 @@ export function getDatabase(){
       add('catalog',[['type','type'],['searchName','searchName']]);
       add('orders',[['number','number',true],['customerId','customerId'],['createdAt','createdAt'],['requestId','requestId',true]]);
       add('payments',[['orderId','orderId'],['createdAt','createdAt']]);
+      const payments=open.transaction.objectStore('payments');
+      if(!payments.indexNames.contains('upiReference')){
+        payments.createIndex('upiReference','upiReference');
+        if(event.oldVersion)payments.openCursor().onsuccess=e=>{
+          const cursor=e.target.result;
+          if(!cursor)return;
+          const reference=upiReference(cursor.value);
+          if(reference)cursor.update({...cursor.value,upiReference:reference});
+          cursor.continue();
+        };
+      }
       add('expenses',[['date','date'],['createdAt','createdAt']]);
       add('audit',[['createdAt','createdAt']]);
       add('meta'); add('cloudState'); add('cloudBase');
@@ -45,7 +60,7 @@ export function getDatabase(){
         };
       }
     };
-    open.onsuccess=()=>{const db=open.result;db.onversionchange=()=>{db.close();dbPromise=null;};resolve(db);};
+    open.onsuccess=()=>{const db=open.result;db.onversionchange=()=>{db.close();dbPromise=null;summaryCache.clear();ledgerCache=undefined;};resolve(db);};
     open.onerror=()=>reject(open.error);open.onblocked=()=>reject(new Error('Close other app tabs before upgrading database.'));
   });
   return dbPromise;
@@ -59,7 +74,9 @@ function requireBillingAccess(device,binding){
 export async function transact(storeNames,mode,fn){
   const db=await getDatabase();
   const tracked=mode==='readwrite'&&!storeNames.includes('cloudState')&&storeNames.some(s=>s!=='audit');
-  const tx=db.transaction(tracked?[...storeNames,'cloudState']:storeNames,mode);
+  const changed=mode==='readwrite'?storeNames.filter(name=>SUMMARY_STORES.includes(name)):[];
+  const scope=(tracked||changed.length)&&!storeNames.includes('cloudState')?[...storeNames,'cloudState']:storeNames;
+  const tx=db.transaction(scope,mode);
   let result; let finished=false;
   const complete=new Promise((resolve,reject)=>{ tx.oncomplete=()=>{finished=true;resolve();};tx.onerror=()=>reject(tx.error||new Error('Storage error'));tx.onabort=()=>reject(tx.error||new Error('Transaction cancelled')); });
   try {
@@ -68,13 +85,41 @@ export async function transact(storeNames,mode,fn){
     if(state)requireBillingAccess(device,device?null:await request(state.get('backupBinding')));
     result=await fn(tx);
     if(device)await request(state.put({...device,generation:device.generation+1}));
+    if(changed.length){
+      const versions=tx.objectStore('cloudState');
+      const marker=await request(versions.get('summaryVersions'));
+      const stamp=crypto.randomUUID();
+      const values={...marker?.values};
+      for(const name of changed)values[name]=stamp;
+      await request(versions.put({id:'summaryVersions',values}));
+    }
   } catch(err) {try{if(!finished)tx.abort();}catch{} await complete.catch(()=>{});throw err;}
   await complete;
   return result;
 }
 export const get = async (store,id)=>transact([store],'readonly',tx=>request(tx.objectStore(store).get(id)));
 export const all = async (store)=>transact([store],'readonly',tx=>request(tx.objectStore(store).getAll()));
-export const put = async (store,value)=>transact([store],'readwrite',tx=>request(tx.objectStore(store).put(value)));
+export async function customerDetails(id){
+  return transact(['customers','vehicles'],'readonly',async tx=>{
+    const [customer,vehicles]=await Promise.all([
+      request(tx.objectStore('customers').get(id)),
+      request(tx.objectStore('vehicles').index('customerId').getAll(id))
+    ]);
+    return customer?{...customer,vehicles}:null;
+  });
+}
+export async function invoiceDetails(id){
+  return transact(['orders','payments','catalog'],'readonly',async tx=>{
+    const [order,payments,catalog]=await Promise.all([
+      request(tx.objectStore('orders').get(id)),
+      request(tx.objectStore('payments').index('orderId').getAll(id)),
+      request(tx.objectStore('catalog').getAll())
+    ]);
+    if(!order)throw Error('Invoice not found.');
+    return {order:{...order,...calculateDue(order,payments)},payments,catalog};
+  });
+}
+export const put = async (store,value)=>transact([store],'readwrite',tx=>request(tx.objectStore(store).put(store==='payments'?indexPayment(value):value)));
 export async function remove(store,id) {return transact([store],'readwrite',tx=>request(tx.objectStore(store).delete(id)));}
 export async function getSetting(){return get('settings','shop');}
 export async function saveSetting(value){return put('settings',{...value,id:'shop',updatedAt:new Date().toISOString()});}
@@ -224,6 +269,28 @@ export async function recordPurchase({productId,qty,costPaise,supplier='',refere
     return purchase;
   });
 }
+const upiReference=payment=>payment.type==='received'&&payment.method==='upi'
+  ? String(payment.reference??'').trim().toLowerCase() : '';
+export function indexPayment(payment){
+  const {upiReference:previous,...record}=payment;
+  const reference=upiReference(record);
+  return reference?{...record,upiReference:reference}:record;
+}
+async function assertAvailableUpiReferences(tx,receipts,requestId){
+  const refs=receipts.map(upiReference).filter(Boolean);
+  if(!refs.length)return;
+  const known=new Set();
+  const index=tx.objectStore('payments').index('upiReference');
+  for(const ref of refs){
+    if(known.has(ref)||await request(index.getKey(ref)))
+      throw Error('This UPI transaction reference has already been recorded for this shop.');
+    known.add(ref);
+  }
+  const drafts=await request(tx.objectStore('cloudState').getAll(DRAFT_KEYS()));
+  if(drafts.some(d=>d.bill.requestId!==requestId&&
+    d.bill.draftReceipts.some(p=>known.has(upiReference({...p,method:'upi',type:'received'})))))
+    throw Error('This UPI transaction reference is already on another bill draft.');
+}
 export async function completeOrder(input){
   const settings=await getSetting();if(!settings)throw Error('Complete shop setup first');
   const calculated=calculateBill(input.items,input.orderDiscount,{registered:settings.gstRegistered,supplyMode:input.supplyMode||'intra'});
@@ -246,6 +313,11 @@ export async function completeOrder(input){
   return transact(['settings','customers','vehicles','orders','payments','meta','audit','catalog','inventoryMovements'],'readwrite',async tx=>{
     const orders=tx.objectStore('orders');
     const existing=await request(orders.index('requestId').get(requestId));if(existing)return existing;
+    const draftPayments=receipts.map(p=>({id:p.id,orderId,amountPaise:p.amountPaise,method:'upi',
+      reference:safeText(p.reference),createdAt:p.createdAt,type:'received'}));
+    const initialPayment=paid?{id:paymentId,orderId,amountPaise:paid,method:input.paymentMethod||'cash',
+      reference:safeText(input.paymentReference),createdAt:now,type:'received'}:null;
+    await assertAvailableUpiReferences(tx,initialPayment?[...draftPayments,initialPayment]:draftPayments,requestId);
     const custStore=tx.objectStore('customers');const vehStore=tx.objectStore('vehicles');
     let customer=input.customerId?await request(custStore.get(input.customerId)):null;
     if(input.customerId&&!customer)throw Error('Selected customer no longer exists');
@@ -302,9 +374,9 @@ export async function completeOrder(input){
     const order={id:orderId,requestId,number,createdAt:now,date:todayISO(),customerId:customer.id,customerSnapshot:{name:customer.name,phone:customer.phone},vehicle,items:compactInvoiceLines(calculated.lines),totals:calculated.totals,orderDiscount:input.orderDiscount||{type:'fixed',value:0},supplyMode:input.supplyMode||'intra',paymentMethod:input.paymentMethod||'cash',paymentReference:safeText(input.paymentReference),notes:safeText(input.notes),status:'completed',shopSnapshot:{name:settings.name,owner:settings.owner,phone:settings.phone,whatsapp:settings.whatsapp,address:settings.address,city:settings.city,state:settings.state,gstin:settings.gstin,invoicePrefix,gstRegistered:settings.gstRegistered,terms:settings.terms||'',language:settings.language||'en'}};
     await request(orders.add(order));
     for(const stock of stockLines){await request(tx.objectStore('inventoryMovements').add({id:uid(),productId:stock.productId,productName:stock.productName,delta:-stock.qty,balanceAfter:stock.balanceAfter,type:'sale',reference:orderId,note:number,createdAt:now}));}
-    for(const p of receipts)await request(tx.objectStore('payments').add({id:p.id,orderId,amountPaise:p.amountPaise,method:'upi',reference:safeText(p.reference),createdAt:p.createdAt,type:'received'}));
+    for(const p of draftPayments)await request(tx.objectStore('payments').add(indexPayment(p)));
     await request(tx.objectStore('cloudState').delete('draft-'+requestId));
-    if(paid)await request(tx.objectStore('payments').add({id:paymentId,orderId,amountPaise:paid,method:input.paymentMethod||'cash',reference:safeText(input.paymentReference),createdAt:now,type:'received'}));
+    if(initialPayment)await request(tx.objectStore('payments').add(indexPayment(initialPayment)));
     await request(tx.objectStore('audit').put({id:uid(),action:'order-created',detail:number,createdAt:now}));
     return order;
   });
@@ -319,7 +391,8 @@ export async function addPayment(orderId,amountPaise,method='cash',reference='',
     if(ref&&payments.some(p=>p.type==='received'&&p.method===method&&String(p.reference||'').toLowerCase()===ref))throw Error('This transaction reference has already been recorded for this invoice.');
     if(amountPaise>due)throw Error('Payment exceeds remaining balance');
     const pay={id:confirmationId?'confirmation-'+confirmationId:uid(),orderId,amountPaise,method,reference:safeText(reference),type:'received',createdAt:new Date().toISOString()};
-    await request(tx.objectStore('payments').add(pay));
+    await assertAvailableUpiReferences(tx,[pay]);
+    await request(tx.objectStore('payments').add(indexPayment(pay)));
     await request(tx.objectStore('audit').add({id:uid(),action:'payment-added',detail:`${order.number} / ${amountPaise}`,createdAt:pay.createdAt}));
     return pay;
   });
@@ -386,26 +459,94 @@ export async function completeReminder(id){
   });
   return item;
 }
-export async function summaryData(){
-  const stores=['settings','customers','vehicles','catalog','orders','payments','expenses','audit','inventoryMovements','purchases','reminders'];
-  const [[settings],customers,vehicles,catalog,orders,payments,expenses,audit,inventoryMovements,purchases,reminders]=
-    await transact(stores,'readonly',tx=>Promise.all(stores.map(store=>request(tx.objectStore(store).getAll()))));
-  const paymentsByOrder=new Map();for(const p of payments){if(!paymentsByOrder.has(p.orderId))paymentsByOrder.set(p.orderId,[]);paymentsByOrder.get(p.orderId).push(p);}
-  const enriched=orders.map(o=>({...o,...calculateDue(o,paymentsByOrder.get(o.id)||[])}));
-  return {settings,customers,vehicles,catalog,orders:enriched,payments,expenses,audit,inventoryMovements,purchases,reminders};
+let ledgerCache;
+export async function summaryData({dashboard=false}={}){
+  const stores=dashboard?[...DASHBOARD_STORES,'customers']:SUMMARY_STORES;
+  const rows=await transact([...stores,'cloudState'],'readonly',async tx=>{
+    const marker=await request(tx.objectStore('cloudState').get('summaryVersions'));
+    return Object.fromEntries(await Promise.all(stores.map(async name=>{
+      const key=dashboard&&name==='customers'?'customerCount':name;
+      const version=marker?.values?.[name]??null;
+      const cached=summaryCache.get(key);
+      if(cached?.version===version)return [key,cached.rows];
+      const store=tx.objectStore(name);
+      const rows=await request(key==='customerCount'?store.count():store.getAll());
+      summaryCache.set(key,{version,rows});
+      return [key,rows];
+    })));
+  });
+  const {orders,payments}=rows;
+  if(ledgerCache?.orders!==orders||ledgerCache?.payments!==payments){
+    const byOrder=new Map();
+    for(const payment of payments){
+      const existing=byOrder.get(payment.orderId);
+      if(existing)existing.push(payment);else byOrder.set(payment.orderId,[payment]);
+    }
+    ledgerCache={orders,payments,enriched:orders.map(order=>({...order,...calculateDue(order,byOrder.get(order.id)||[])}))};
+  }
+  return {...Object.fromEntries(SUMMARY_STORES.map(name=>[name,[]])),...rows,
+    dashboard,settings:rows.settings[0],orders:ledgerCache.enriched,customerCount:rows.customerCount??rows.customers.length};
 }
 const canonical = v => JSON.stringify(v);
 const digest = async text => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))).map(x=>x.toString(16).padStart(2,'0')).join('');
+const ANDROID_BACKUP_LIMIT=20_000_000;
+export async function packAndroidBackup(json){
+  if(json.length<=ANDROID_BACKUP_LIMIT)return json;
+  if(typeof CompressionStream!=='function')
+    throw Error('This Android WebView cannot fit the automatic backup. Update WebView or export a backup from the web app.');
+  const {payload:{data:{settings},schemaVersion}}=JSON.parse(json);
+  const stream=new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
+  const bytes=new Uint8Array(await new Response(stream).arrayBuffer());
+  const parts=[];
+  for(let i=0;i<bytes.length;i+=24576)parts.push(btoa(String.fromCharCode(...bytes.subarray(i,i+24576))));
+  const payload={app:'TyreDesk',schemaVersion,data:{settings:[{createdAt:settings[0]?.createdAt}]},
+    compression:'gzip-base64',archive:parts.join('')};
+  const packed=JSON.stringify({payload,checksum:await digest(canonical(payload))});
+  if(packed.length>ANDROID_BACKUP_LIMIT)
+    throw Error('The automatic backup is too large for Android. Export and verify a backup from the web app.');
+  return packed;
+}
+async function unpackBackup(wrapper){
+  const data=Uint8Array.from(atob(wrapper.payload.archive),ch=>ch.charCodeAt(0));
+  const reader=new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+  const decoder=new TextDecoder('utf-8',{fatal:true});
+  let size=0,json='';
+  try{
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done)break;
+      size+=value.length;
+      if(size>100_000_000){await reader.cancel();throw Error('Decompressed backup is too large');}
+      json+=decoder.decode(value,{stream:true});
+    }
+    return JSON.parse(json+decoder.decode());
+  }finally{reader.releaseLock();}
+}
 export async function exportBackup(){
   const payload={schemaVersion:DB_VERSION,app:'TyreDesk',exportedAt:new Date().toISOString(),data:{}};
-  await transact([...STORES,'cloudState'],'readonly',async tx=>{
+  await transact([...STORES,'cloudState','cloudBase'],'readonly',async tx=>{
     const reads=STORES.map(store=>request(tx.objectStore(store).getAll()));
     const cloud=tx.objectStore('cloudState');
-    const [rows,drafts,bound,previous]=await Promise.all([Promise.all(reads),request(cloud.getAll(DRAFT_KEYS())),
-      request(cloud.get('device')),request(cloud.get('backupBinding'))]);
+    const [rows,drafts,bound,previous,savedRecovery]=await Promise.all([Promise.all(reads),request(cloud.getAll(DRAFT_KEYS())),
+      request(cloud.get('device')),request(cloud.get('backupBinding')),request(cloud.get('backupRecovery'))]);
     const binding=bound||previous;
     if(binding)payload.shopBinding={project:binding.project,user:binding.user};
     for(const [index,store] of STORES.entries())payload.data[store]=rows[index];
+    if(bound?.revision>=0){
+      const before=[];
+      if(bound.generation!==bound.cleanGeneration){
+        const base=new Map((await request(tx.objectStore('cloudBase').getAll())).map(r=>[r.id,r.doc]));
+        const local=new Map();
+        for(const kind of SYNC_STORES)for(const row of payload.data[kind]){
+          const record=cloudRecord(kind,row);
+          if(record)local.set(rowKey(kind,row.id),record);
+        }
+        for(const {kind,key} of changes(base,local)){
+          before.push({kind,key,doc:base.get(rowKey(kind,key))??null});
+        }
+      }
+      payload.syncRecovery={revision:bound.revision,before};
+    }else if(savedRecovery)payload.syncRecovery=savedRecovery.data;
     if(drafts.length)payload.drafts=drafts;
   });
   const checksum=await digest(canonical(payload));
@@ -416,6 +557,13 @@ export async function restoreBackup(json,{disconnectCloud=false}={}){
   let wrapper;try{wrapper=JSON.parse(json);}catch{throw Error('Invalid JSON backup');}
   if(!wrapper||!wrapper.payload||typeof wrapper.checksum!=='string')throw Error('Invalid backup structure');
   if(await digest(canonical(wrapper.payload))!==wrapper.checksum)throw Error('Backup checksum failed. The file is damaged or modified.');
+  if(wrapper.payload.compression!==undefined){
+    if(wrapper.payload.app!=='TyreDesk'||wrapper.payload.compression!=='gzip-base64'||typeof wrapper.payload.archive!=='string')
+      throw Error('Invalid compressed backup');
+    wrapper=await unpackBackup(wrapper);
+    if(!wrapper?.payload||await digest(canonical(wrapper.payload))!==wrapper.checksum)
+      throw Error('Compressed backup checksum failed.');
+  }
   if(wrapper.payload.app!=='TyreDesk'||![3,4,5,6].includes(wrapper.payload.schemaVersion))throw Error('Incompatible backup version');
   const data={...wrapper.payload.data};
   // Legacy v3 backups predate inventory. Restoring them preserves their original records.
@@ -433,6 +581,12 @@ export async function restoreBackup(json,{disconnectCloud=false}={}){
   const binding=wrapper.payload.shopBinding;
   if(binding!==undefined&&(!binding||!/^[a-z0-9]{20}$/.test(binding.project)||typeof binding.user!=='string'||!binding.user))
     throw Error('Invalid backup shop identity');
+  const recovery=wrapper.payload.syncRecovery;
+  if(recovery!==undefined&&(!binding||!Number.isSafeInteger(recovery?.revision)||recovery.revision<0||
+     !Array.isArray(recovery.before)||recovery.before.some(row=>!row||!SYNC_STORES.includes(row.kind)||
+       typeof row.key!=='string'||!row.key||(row.doc!==null&&row.doc?.id!==row.key))||
+     new Set(recovery.before.map(row=>rowKey(row.kind,row.key))).size!==recovery.before.length))
+    throw Error('Invalid backup recovery information');
   const drafts=wrapper.payload.drafts??[];
   const invoiceRequests=new Set(data.orders.map(order=>order.requestId));
   if(!Array.isArray(drafts)||drafts.some(d=>!d?.bill?.requestId||d.id!=='draft-'+d.bill.requestId||
@@ -455,19 +609,22 @@ export async function restoreBackup(json,{disconnectCloud=false}={}){
       throw Error('A draft has a confirmed payment. Save its invoice before replacing device records.');
     await request(state.clear());
     if(binding||current){const owner=binding||current;await request(state.put({id:'backupBinding',project:owner.project,user:owner.user}));}
+    if(recovery)await request(state.put({id:'backupRecovery',data:recovery}));
     await request(tx.objectStore('cloudBase').clear());
     for(const store of STORES)await request(tx.objectStore(store).clear());
-    for(const store of STORES)for(const value of data[store])await request(tx.objectStore(store).add(value));
+    for(const store of STORES)for(const value of data[store])
+      await request(tx.objectStore(store).add(store==='payments'?indexPayment(value):value));
     for(const draft of drafts)await request(tx.objectStore('cloudState').add(draft));
     return Object.fromEntries(STORES.map(store=>[store,data[store].length]));
   });
 }
 
 export async function saveReceivedDraft(bill){
-  return transact(['cloudState','orders'],'readwrite',async tx=>{
+  return transact(['cloudState','orders','payments'],'readwrite',async tx=>{
     const state=tx.objectStore('cloudState');
     requireBillingAccess(await request(state.get('device')),await request(state.get('backupBinding')));
     if(await request(tx.objectStore('orders').index('requestId').get(bill.requestId)))throw Error('This draft already has an invoice.');
+    await assertAvailableUpiReferences(tx,(bill.draftReceipts||[]).map(p=>({...p,method:'upi',type:'received'})),bill.requestId);
     await request(state.put({id:'draft-'+bill.requestId,bill:{...bill,saving:false}}));
   });
 }

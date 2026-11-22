@@ -8,6 +8,10 @@ export function cloudRecord(kind,record){
     const {pinHash,pinSalt,...rest}=record;
     return rest;
   }
+  if(kind==='payments'){
+    const {upiReference,...rest}=record;
+    return rest;
+  }
   return record;
 }
 export function changes(before,after){

@@ -1,4 +1,4 @@
-import {transact,receivedDraft} from './db.mjs';
+import {transact,receivedDraft,indexPayment} from './db.mjs';
 import {SYNC_STORES,rowKey,cloudRecord,changes} from './cloud-merge.mjs';
 const req=r=>new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
 export const localCloud=()=>transact(['cloudState'],'readonly',tx=>req(tx.objectStore('cloudState').get('device')));
@@ -44,7 +44,7 @@ export async function snapshot(){
     return {device,base,local:await readRecords(tx)};
   });
 }
-export async function applyCloud(snap,target,revision,localTarget=target){
+export async function applyCloud(snap,target,revision,localTarget=target,{restored=false}={}){
   return transact([...SYNC_STORES,'cloudState','cloudBase'],'readwrite',async tx=>{
     const state=tx.objectStore('cloudState'),device=await req(state.get('device'));
     if(device.revision!==snap.device.revision||device.generation!==snap.device.generation)return false;
@@ -61,9 +61,13 @@ export async function applyCloud(snap,target,revision,localTarget=target){
         const {pinHash,pinSalt}=current||device.pin||{};
         if(!pinHash||!pinSalt)throw Error('Choose a local PIN on this device to recover the shop.');
         await req(s.put({...c.doc,pinHash,pinSalt}));
-      }else await req(s.put(c.doc));
+      }else await req(s.put(c.kind==='payments'?indexPayment(c.doc):c.doc));
     }
-    await req(state.put({...device,revision,cleanGeneration:localTarget===target?device.generation:-1,pin:target.has(rowKey("settings","shop"))?undefined:device.pin}));
+    const clean=localTarget===target;
+    await req(state.put({...device,revision,cleanGeneration:clean?device.generation:-1,
+      recoveryPending:!clean&&(restored||device.recoveryPending)||undefined,
+      pin:target.has(rowKey("settings","shop"))?undefined:device.pin}));
+    if(restored)await req(state.delete('backupRecovery'));
     await req(state.delete('pending'));
     return true;
   });

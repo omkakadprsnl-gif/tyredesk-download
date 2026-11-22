@@ -32,6 +32,8 @@ async function make(owner){
    await db.exec('reset role');
  }
  await db.exec(await read('supabase/migrations/20261122103925_enforce_billing_device_handover.sql'));
+ await db.exec(await read('supabase/migrations/20261122120000_fix_billing_singleton_predicates.sql'));
+ await db.exec(await read('supabase/migrations/20261122204818_enforce_shop_payment_refs_and_device_retirement.sql'));
  await act(owner);
  const commit=(revision,changes,id=newWrite,device=token,grant=grantA)=>db.query('select public.tyredesk_billing_commit($1,$2,$3,$4,$5) as result',[revision,JSON.stringify(changes),device,id,grant]);
  const billing=async(action,device,grant,revision)=>{
@@ -73,6 +75,7 @@ try{
   assert.equal(await shop.billing('release',token,grantA,2),'released');
   assert.equal(await shop.billing('status',tokenB,grantB),'own');
   await assert.rejects(shop.commit(3,[tyre],write),/does not hold billing access/);
+  await assert.rejects(shop.db.query('select tyredesk.retire_lost_billing_device($1,3)',[tokenB]),/permission denied/);
   assert.equal((await shop.db.query("select doc->>'name' name from public.tyredesk_page(0,'','') where kind='settings'")).rows[0].name,profile.doc.name);
   await assert.rejects(shop.db.query('select count(*) from tyredesk.records'),/permission denied/);
   await shop.act(users[1-i]);
@@ -86,6 +89,18 @@ try{
   await assert.rejects(shop.billing('status',tokenB,grantB),/permission denied/);
   await shop.act(users[i]);
   assert.equal((await shop.db.query('select (public.tyredesk_head()->>\'revision\')::int as version')).rows[0].version,3);
+  await shop.db.exec('reset role');
+  assert.equal((await shop.db.query('select tyredesk.retire_lost_billing_device($1,2) as result',[tokenB])).rows[0].result,'stale');
+  assert.equal((await shop.db.query('select tyredesk.retire_lost_billing_device($1,3) as result',[tokenB])).rows[0].result,'retired');
+  await shop.act(users[i]);
+  assert.equal(await shop.billing('status',tokenB,grantB),'retired');
+  await assert.rejects(shop.billing('claim',tokenB,grantB,4),/has been retired/);
+  assert.equal(await shop.billing('claim',token,grantA,4),'own');
+  const invoice=id=>({kind:'orders',key:id,doc:{id,number:id,status:'completed',totals:{grandPaise:10000}}});
+  const payment=(id,orderId,reference)=>({kind:'payments',key:id,doc:{id,orderId,type:'received',method:'upi',reference,amountPaise:10000}});
+  assert.equal((await shop.commit(4,[invoice('one'),payment('upi-1','one','TEST-UTR')],write)).rows[0].result,5);
+  await assert.rejects(shop.commit(5,[invoice('two'),payment('upi-2','two','  test-utr  ')],newWrite),/unique_shop_upi_transfer/);
+  assert.equal((await shop.db.query("select count(*)::int as n from public.tyredesk_page(0,'','') where kind='orders'")).rows[0].n,1);
  }
  console.log('PASS: two independent PostgreSQL fixtures, owner-only access, stock validation, exclusive billing, stale grant rejection and idempotency');
 }finally{await Promise.all([a.db.close(),b.db.close()]);}

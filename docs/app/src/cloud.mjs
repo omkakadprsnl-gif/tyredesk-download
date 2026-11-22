@@ -38,6 +38,7 @@ async function rpc(action,body={}){
     if(/project.{0,30}paused|project_paused/i.test(raw)||res.status===540)throw Error('Your Supabase project is paused. Open the project dashboard and choose Resume Project.');
     if(res.status>=500)throw Error('The cloud service is unavailable. Check the project dashboard. This device will retry.');
     let detail;try{detail=JSON.parse(raw).message;}catch{}
+    if(/unique_shop_upi_transfer/i.test(detail||''))throw new SyncConflict('A UPI reference is already recorded in the shop. Check which invoice the transfer paid before retrying sync.');
     if(/duplicate key|shared stock|inventory mode|invoice balance/i.test(detail||''))throw new SyncConflict('A shared invoice, payment or stock record conflicts with this device. Review both copies.');
     throw Error(detail||'The cloud request was declined ('+res.status+').');
   }
@@ -174,10 +175,10 @@ async function billingAction(run){
     notify();
   }
 }
-async function syncForBilling(){
+async function syncForBilling({claimingRecovery=false}={}){
   await cycle();
   const device=await localCloud();
-  if(device.revision<0||device.generation!==device.cleanGeneration||await pendingWrite())
+  if(device.revision<0||device.generation!==device.cleanGeneration&&!(claimingRecovery&&device.recoveryPending)||await pendingWrite())
     throw Error('Billing cannot switch until all changes on this device have synced.');
   return device.revision;
 }
@@ -187,22 +188,34 @@ export function startBilling(){
     if(!device)throw Error('Sign in to start billing.');
     if(device.billingProtocol===false)return;
     if(device.billing?.phase==='active')return;
+    if(device.billing?.phase==='retired')return;
+    if(device.billing?.phase==='restoring'){
+      await syncForBilling();
+      await setBillingState({...device.billing,phase:'active'});
+      return;
+    }
     if(device.billing?.phase==='switching')throw Error('Wait for the billing handover to finish.');
     const billing=device.billing||{phase:'claiming',token:crypto.randomUUID()};
-    if(await billingRpc('status',billing)==='busy'){
+    const access=await billingRpc('status',billing);
+    if(access==='retired'){await setBillingState({phase:'retired'});return;}
+    if(access==='busy'){
       if(device.billing)await setBillingState(undefined);
       return;
     }
     if(!device.billing)await setBillingState(billing);
     let revision;
-    try{revision=await syncForBilling();}
+    try{revision=await syncForBilling({claimingRecovery:true});}
     catch(error){
       // A persisted claim may already have reached the server after a lost response.
       if(await billingRpc('status',billing)==='free')await setBillingState(undefined);
       throw error;
     }
     const result=await billingRpc('claim',billing,{expected_revision:revision});
-    if(result==='own')await setBillingState({...billing,phase:'active'});
+    if(result==='own'){
+      const recovering=(await localCloud()).recoveryPending;
+      await setBillingState({...billing,phase:recovering?'restoring':'active'});
+      if(recovering){await syncForBilling();await setBillingState({...billing,phase:'active'});}
+    }
     else if(result==='busy'||result==='stale'){
       await setBillingState(undefined);
       if(result==='stale')throw Error('Shop records changed. Tap Start billing to load the latest copy.');
@@ -213,7 +226,7 @@ async function releaseBilling(shouldRelease){
   return withSyncLock(async()=>{
     if(!navigator.onLine||!shouldRelease())return;
     const device=await localCloud();
-    if(!device?.billing)return;
+    if(!device?.billing||device.billing.phase==='retired')return;
     if(device.billing.phase==='claiming'&&await billingRpc('status',device.billing)!=='own'){
       await setBillingState(undefined);
       return;
@@ -260,6 +273,14 @@ async function cycle(useCloud=false){
     d=await localCloud();
     await refreshBilling();
   }
+  if(['active','restoring','switching'].includes(d.billing?.phase)&&d.revision!==firstHead.revision&&
+     await billingRpc('status',d.billing)==='retired'){
+    await setBillingState({phase:'retired'});
+    await refreshBilling();
+    status('This billing device has been retired. Export any unsynced records for review.');
+    return;
+  }
+  if(d.billing?.phase==='retired'&&!useCloud)return;
   for(let attempt=0;attempt<5;attempt++){
     const token=deviceToken();
     const pending=await pendingWrite();
@@ -299,12 +320,39 @@ async function cycle(useCloud=false){
       throw new SyncConflict('This device has business records and the cloud shop is empty. Contact support to verify the recovery source.');
     if(!useCloud&&snap.device.revision<0&&l&&r&&l.createdAt!==r.createdAt)
       throw new SyncConflict('This device and the cloud contain different shop setups. Export this device before choosing the cloud shop.');
+    const recovered=snap.device.revision<0&&backup&&l&&r&&await get('cloudState','backupRecovery');
+    if(!useCloud&&recovered){
+      if(recovered.data.revision>head.revision)
+        throw new SyncConflict('This backup was made from a later cloud revision. Keep the backup and contact support.');
+      const base=new Map(remote);
+      for(const {kind,key,doc} of recovered.data.before){
+        const id=rowKey(kind,key);
+        if(doc)base.set(id,doc);else base.delete(id);
+      }
+      const restored=new Map(base);
+      for(const {kind,key} of recovered.data.before){
+        const id=rowKey(kind,key);
+        if(snap.local.has(id))restored.set(id,snap.local.get(id));else restored.delete(id);
+      }
+      const reconciled=reconcile(base,restored,remote);
+      const result=changes(remote,reconciled).length?reconciled:remote;
+      if(!await applyCloud(snap,remote,head.revision,result,{restored:true}))continue;
+      window.dispatchEvent(new Event('tyredesk-cloud-data'));
+      blocked=false;
+      status(result===remote?'Shop records synced.':'Backup reconciled locally. Recovered changes will sync when this device has billing access.');
+      return;
+    }
     if(!useCloud&&snap.device.revision<0&&l&&r&&changes(remote,snap.local).length)
       throw new SyncConflict('Cloud records and this previously unlinked device differ. Back up this device before recovering the current cloud copy.');
     const merged=useCloud?remote:reconcile(snap.base,snap.local,remote);
     const outgoing=changes(remote,merged);
     let revision=head.revision;
     if(outgoing.length){
+      if(snap.device.recoveryPending&&!['active','restoring','switching'].includes(snap.device.billing?.phase)){
+        if(!await applyCloud(snap,remote,head.revision,merged,{restored:true}))continue;
+        status('Backup reconciled locally. Recovered changes will sync when this device has billing access.');
+        return;
+      }
       validateBillingGrant(snap.device);
       const pending=await stageWrite(snap,merged,head.revision,outgoing);
       if(!pending)continue;
@@ -321,7 +369,7 @@ async function cycle(useCloud=false){
 }
 function validateBillingGrant(device){
   if(device.billingProtocol===false)return;
-  if(!['active','switching'].includes(device.billing?.phase))
+  if(!['active','restoring','switching'].includes(device.billing?.phase))
     throw Error('This device has changes from before billing access was set up. Export a backup and contact support to reconcile them.');
 }
 function commitBilling(device,pending){
@@ -346,7 +394,7 @@ function releaseIfUnused(){
 async function manageForegroundBilling(){
   if(!navigator.locks||!navigator.onLine||billingBusy)return;
   const device=await localCloud();
-  if(!usingApp()||!device||device.billingProtocol===false||device.billing?.phase==='active')return;
+  if(!usingApp()||!device||device.billingProtocol===false||['active','retired'].includes(device.billing?.phase))return;
   if(!(await setupClient().getSession()).data.session)return;
   if(device.billing?.phase==='switching')await finishBilling();
   if(usingApp())await startBilling();

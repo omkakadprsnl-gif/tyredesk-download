@@ -42,5 +42,32 @@ Close or background the app while it is connected to switch devices. TyreDesk fr
 
 The matching app supports older shop projects so it can be distributed before lockdown. Upgrade every issuing device and confirm its cloud status is synced, then close any older app copies before enabling the lock. Apply the billing handover migration after the restricted-business-tables migration. Earlier app versions can still create local invoices and their writes will be rejected by the migrated cloud. Validate the matching clients with a disposable hosted Supabase project and check the installed Android upgrade before changing any live project.
 
-If the device holding access is lost, follow the recovery procedure above and reconcile unsynced transactions against physical stock and payment records before any administrative intervention.
+### Replace a lost billing device
+
+1. Verify the shop owner's identity through the support channel. Establish that the old device is lost, wiped, or physically removed from use before retiring it. A disconnected device cannot receive a revocation, so an old offline device might still issue local invoices if someone uses it. Review the latest independent backup, bank receipts and physical stock before resuming.
+2. Sign in on the replacement to pull the last synced records. If a newer verified backup exists, restore it to the replacement and sign in to the same shop. Backups made with the recovery update include the last cloud revision and original values for unsynced changes. TyreDesk compares those changes against the cloud copy and preserves conflicts for review. Earlier backup files can be opened separately for manual reconciliation. Keep the original file and the synced copy.
+3. A verified shop administrator uses **that shop's** Supabase SQL Editor. Read the active billing device and revision with the query below. Confirm the active device matches the device being retired and keep the last known recovery copies.
+
+```sql
+select billing_device, revision
+from tyredesk.shop
+where singleton;
+```
+
+4. Pass the verified device ID and revision to the administrator-only function.
+
+```sql
+select tyredesk.retire_lost_billing_device(
+  '<verified device uuid>'::uuid,
+  <verified revision>
+);
+```
+
+It returns `stale` if the grant or revision changed. Recheck the shop and device before retrying. After it returns `retired`, the replacement can claim billing, sync recoverable changes and start billing. Compare invoice counts, payment totals and stock to the records reviewed in step 1. Keep an old device that reappears offline and preserve its backup for review before allowing it to rejoin as a fresh installation.
+
+### Payment and backup rollout
+
+- The shop-wide UPI index applies to nonblank received UPI references. Pre-existing duplicates must be reviewed before the migration can be applied. It preserves historical receipts and does not split one transfer between bills.
+- Large Android automatic backups can use a compressed JSON envelope. The updated TyreDesk restores both formats and verifies both checksums for a compressed archive. Keep an updated installer with the recovery copy. For shops with very large history, verify the actual off-device backup and restore before relying on it.
+- The updated app opens existing local records with an IndexedDB index migration. Back up and finish any pending invoices before upgrading. To revert after the index migration, restore the verified archive with a compatible build.
 

@@ -1,5 +1,6 @@
 export function mockShopAccount({ref='aaaaaaaaaaaaaaaaaaaa',alias='fixture',owner='test-owner'}={}){
  const records=new Map(),devices=new Map(),receipts=new Map();
+ const retired=new Set();
  let revision=0,lastDelete=0,billing;
  const control={paused:false,loseAck:false,billingHandover:true};
  async function attach(ctx){
@@ -21,10 +22,11 @@ export function mockShopAccount({ref='aaaaaaaaaaaaaaaaaaaa',alias='fixture',owne
   if(endpoint==='tyredesk_receipt')return send(receipts.get(b.write_token)??-1);
   if(endpoint==='tyredesk_page')return send([...records.values()].filter(x=>x.rev>b.since_revision&&(x.kind>b.after_kind||x.kind===b.after_kind&&x.key>b.after_key)).sort((x,y)=>x.kind<y.kind?-1:x.kind>y.kind?1:x.key<y.key?-1:1).slice(0,100));
   const owns=!!billing&&billing.device===b.device_token&&billing.token===b.grant_token;
-  if(endpoint==='tyredesk_billing_status')return send(owns?'own':billing?'busy':'free');
+  if(endpoint==='tyredesk_billing_status')return send(retired.has(b.device_token)?'retired':owns?'own':billing?'busy':'free');
   if(endpoint==='tyredesk_billing_claim'){
     if(owns)return send('own');
     if(billing)return send('busy');
+    if(retired.has(b.device_token))return send({message:'This billing device has been retired'},400);
     if(b.expected_revision!==revision)return send('stale');
     billing={device:b.device_token,token:b.grant_token};
     if(control.loseClaimAck){control.loseClaimAck=false;return route.abort('connectionreset');}
@@ -55,7 +57,13 @@ export function mockShopAccount({ref='aaaaaaaaaaaaaaaaaaaa',alias='fixture',owne
  });
 
  }
- return {attach,control,records};
+ function retireBillingDevice(){
+   if(!billing)throw Error('No issuing device in the test shop.');
+   retired.add(billing.device);
+   billing=undefined;
+   revision++;
+ }
+ return {attach,control,records,retireBillingDevice};
 }
 export async function signIn(page){
  const form=page.locator('#cloud-form');

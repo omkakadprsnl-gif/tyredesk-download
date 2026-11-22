@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, tyredesk-1.3.0-release, commercial-audit-20261122, billing-handover]
+    branches: [main, tyredesk-1.3.0-release, commercial-audit-20261122, billing-handover, fix-commercial-blockers]
     paths:
       - 'docs/app/**'
       - 'tests/**'
