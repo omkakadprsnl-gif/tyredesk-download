@@ -816,7 +816,7 @@ function updateActions(){
  const update=updateStatus();
  const busy=['checking','installing'].includes(update.phase);
  return `<p role="status">${E(update.message)}</p><button type="button" class="button" data-action="check-updates" ${busy?'disabled':''}>Check for updates</button>
- ${['available','retry'].includes(update.phase)?'<button type="button" class="button primary" data-action="install-update">${nativeAndroid()?"Open Download Page":"Update Now"}</button>'+androidUpdateNote():''}`;
+ ${['available','retry'].includes(update.phase)?'<button type="button" class="button primary" data-action="install-update">'+(nativeAndroid()?'Open Download Page':'Update Now')+'</button>'+androidUpdateNote():''}`;
 }
 function updatePanel(){
  return `<section class="setting-panel"><h2>Update App</h2><div data-update-settings>${updateActions()}</div></section>`;
@@ -825,7 +825,7 @@ function updateBanner(){
  const update=updateStatus();
  if(!['available','retry','installing'].includes(update.phase))return '';
  return `<section class="report-banner update-banner"><div><strong>Update Available</strong><p role="status">${E(update.message)}</p>${update.phase==='installing'?'':androidUpdateNote()}</div>
- ${update.phase==='installing'?'':'<button type="button" class="button primary" data-action="install-update">${nativeAndroid()?"Open Download Page":"Update Now"}</button>'}</section>`;
+ ${update.phase==='installing'?'':'<button type="button" class="button primary" data-action="install-update">'+(nativeAndroid()?'Open Download Page':'Update Now')+'</button>'}</section>`;
 }
 window.addEventListener('tyredesk-update',()=>{
  const settings=$('[data-update-settings]'),banner=$('[data-update-banner]');
