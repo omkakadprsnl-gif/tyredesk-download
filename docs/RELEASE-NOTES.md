@@ -2,6 +2,8 @@
 
 Mobile sign-in uses less space. Tablet billing and payment screens keep actions within the page. Android removes older downloaded update files from its update cache on the backup schedule.
 
+An in-app update on one Android 16 phone reached the system installer. Google Play Protect then blocked installation. The PDF layouts were tested in Chromium.
+
 APK SHA-256: `e9bae56ac8e974bd37d2bfb4a7b0e6a97151b224e8a60a43c6b687443fe11b93`
 
 # TyreDesk 1.3.0
