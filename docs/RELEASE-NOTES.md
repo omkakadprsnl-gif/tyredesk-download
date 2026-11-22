@@ -1,3 +1,9 @@
+# TyreDesk 1.3.9
+
+Create inventory categories and optional fields in Settings. Add stock under the new category, enter its fields and select the product when billing. Tyres keep their existing inventory flow and support additional fields. Update every device for the shop before using custom stock categories.
+
+`SHA-256` 59fa079b191f18d25fe44945115d7593d00b2f9e1a7ab3e9f98bf4fb0388568d
+
 # TyreDesk 1.3.8
 
 The update notice now sits above the sign-in and shop setup forms. Terms & Conditions and Privacy Policy have Back buttons that return you to the form, and both list tyredeskofficial@gmail.com for support.
