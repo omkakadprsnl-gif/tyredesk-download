@@ -1,6 +1,6 @@
 import {compactInvoiceLines} from './invoice-storage.mjs';
 import {prepareInvoiceEdit,trackedQuantities} from './stock-edit.mjs';
-import { inventoryCategories, productCategory, isStockProduct, inventoryMode, tyreIdentity, tyreName, tyreText } from './tyres.mjs';
+import { inventoryCategories, productCategory, isStockProduct, isVariantTyre, stockKeyFields, inventoryMode, tyreIdentity, tyreName, tyreText } from './tyres.mjs';
 import {uid, normalizePhone, normalizeVehicle, safeText, calculateBill, calculateDue, todayISO} from './logic.mjs';
 import {SYNC_STORES,rowKey,cloudRecord,changes} from './cloud-merge.mjs';
 
@@ -173,10 +173,10 @@ export async function setInventoryMode(mode) {
   });
 }
 
-export async function saveInventoryCategory(id,name,fields){
+export async function saveInventoryCategory(id,name,fields,identityIndexes=undefined){
   name=tyreText(name);
   if(!name||name.length>60)throw Error('Enter a category name up to 60 characters.');
-  return transact(['settings'],'readwrite',async tx=>{
+  return transact(['settings','catalog'],'readwrite',async tx=>{
     const store=tx.objectStore('settings'),shop=await request(store.get('shop'));
     if(!shop)throw Error('Complete shop setup first.');
     const categories=inventoryCategories(shop),previous=categories.find(category=>category.id===id);
@@ -190,7 +190,23 @@ export async function saveInventoryCategory(id,name,fields){
     if(labels.length>12||labels.some(label=>label.length>60)||new Set(labels.map(label=>label.toLowerCase())).size!==labels.length)
       throw Error('Use up to 12 distinct field names, each up to 60 characters.');
     if(labels.length<(previous?.fields.length||0))throw Error('Existing fields must keep a name.');
-    const next={id:id||uid(),name,fields:labels.map((label,index)=>({id:previous?.fields[index]?.id||uid(),label}))};
+    if(identityIndexes!==undefined&&(!Array.isArray(identityIndexes)||
+      identityIndexes.some(index=>!Number.isInteger(index)||index<0||index>=labels.length)))
+      throw Error('Invalid stock-classification fields.');
+    const selected=identityIndexes===undefined?null:new Set(identityIndexes);
+    const next={id:id||uid(),name,fields:labels.map((label,index)=>({
+      id:previous?.fields[index]?.id||uid(),label,
+      ...(id==='tyres'&&(selected?selected.has(index):previous?.fields[index]?.stockKey===true)?{stockKey:true}:{})
+    }))};
+    if(id==='tyres'){
+      const previousKeys=stockKeyFields(shop).map(field=>field.id);
+      const nextKeys=next.fields.filter(field=>field.stockKey).map(field=>field.id);
+      if(JSON.stringify(previousKeys)!==JSON.stringify(nextKeys)){
+        const tyres=await request(tx.objectStore('catalog').index('type').getAll('tyre'));
+        if(tyres.some(isVariantTyre))
+          throw Error('Stock-classification fields are locked after variants exist. Preserve their stock history.');
+      }
+    }
     const saved=(shop.inventoryCategories||[]).filter(category=>category.id!==next.id);
     await request(store.put({...shop,inventoryCategories:[...saved,next],updatedAt:new Date().toISOString()}));
     return next;
@@ -205,8 +221,12 @@ function inventoryAttributes(shop,item,values){
 }
 
 export async function buyTyres({mode,brand,model,size,existingId,qty,costPaise,pricePaise,supplier='',reference='',purchaseId=uid(),attributes}) {
-  const identity=tyreIdentity(mode,{brand,model,size});
-  if(!identity&&!existingId)throw Error(mode==='detailed'?'Enter a brand, model and size.':'Enter a brand.');
+  const config=await getSetting();
+  if(!config)throw Error('Complete shop setup first.');
+  const base=tyreIdentity(mode,{brand,model,size});
+  const identity=tyreIdentity(mode,{brand,model,size,attributes},config);
+  if(!base&&!existingId)throw Error(mode==='detailed'?'Enter a brand, model and size.':'Enter a brand.');
+  if(!identity&&!existingId)throw Error('Complete every field marked "Separate tyre variants" before adding stock.');
   qty=stockInt(qty,'Quantity');
   if(!qty)throw Error('Enter how many tyres you purchased.');
   if(!Number.isSafeInteger(costPaise)||costPaise<0||!Number.isSafeInteger(pricePaise)||pricePaise<0)
@@ -217,24 +237,33 @@ export async function buyTyres({mode,brand,model,size,existingId,qty,costPaise,p
     const saved=await request(purchases.get(purchaseId));
     if(saved)return saved;
     const shop=await request(tx.objectStore('settings').get('shop'));
+    const beforeKeys=stockKeyFields(config).map(f=>f.id),nowKeys=stockKeyFields(shop).map(f=>f.id);
+    if(JSON.stringify(beforeKeys)!==JSON.stringify(nowKeys))
+      throw Error('Tyre classification changed. Reopen this purchase.');
     const catalog=tx.objectStore('catalog');
     const tyres=await request(catalog.index('type').getAll('tyre'));
     if(inventoryMode(shop,tyres)!==mode)throw Error('The inventory mode changed. Reopen this purchase.');
     if(!shop.inventoryMode)await request(tx.objectStore('settings').put({...shop,inventoryMode:mode,updatedAt:new Date().toISOString()}));
-    const matches=identity?tyres.filter(p=>tyreIdentity(mode,p)===identity):[];
-    if(matches.length>1)throw Error('More than one older stock entry matches. Open the intended entry and choose Restock.');
+    // Once stock-key fields are enabled, a legacy unsorted tyre must not absorb
+    // a newly classified variant simply because Brand/Model/Size match.
+    const matches=identity?tyres.filter(p=>p.tyreIdentity===identity||
+      (!beforeKeys.length&&!p.tyreIdentity&&tyreIdentity(mode,p)===identity)):[];
+    if(matches.length>1)throw Error('More than one stock entry matches. Select the correct variant and choose Restock.');
     const selected=existingId?tyres.find(p=>p.id===existingId):matches[0];
     if(existingId&&!selected)throw Error('The existing tyre could not be found.');
-    if(selected&&identity&&tyreIdentity(mode,selected)!==identity)throw Error('The selected tyre no longer matches.');
+    if(selected&&base&&tyreIdentity(mode,selected)!==base)throw Error('The selected tyre no longer matches.');
+    if(selected&&identity&&selected.tyreIdentity&&selected.tyreIdentity!==identity)
+      throw Error('The selected stock entry is a different tyre variant.');
     const now=new Date().toISOString();
-    const details={brand:tyreText(brand),model:mode==='detailed'?tyreText(model):'',size:mode==='detailed'?tyreText(size):''};
-    const product=selected||{...details,id:productId,name:tyreName(details,mode),type:'tyre',stockQty:0,
+    const details={brand:tyreText(brand),model:mode==='detailed'?tyreText(model):'',
+      size:mode==='detailed'?tyreText(size):'',
+      attributes:identity?inventoryAttributes(shop,{type:'tyre'},attributes):{}};
+    const product=selected||{...details,id:productId,name:tyreName(details,mode,shop),type:'tyre',stockQty:0,
       taxBps:0,lowStockAt:5,isActive:true,trackStock:true,createdAt:now,tyreIdentity:identity,inventoryMode:mode};
     const next=stockInt((product.stockQty||0)+qty,'Stock');
-    const name=tyreName(product,mode);
+    const name=tyreName(product,mode,shop);
     await request(catalog.put({...product,stockQty:next,pricePaise,costPaise,updatedAt:now,
-      supplier:safeText(supplier)||product.supplier||'',
-      ...(attributes===undefined?{}:{attributes:{...product.attributes,...inventoryAttributes(shop,product,attributes)}})}));
+      supplier:safeText(supplier)||product.supplier||''}));
     const purchase={id:purchaseId,productId:product.id,productName:name,qty,costPaise,pricePaise,
       supplier:safeText(supplier),reference:safeText(reference),createdAt:now};
     await request(purchases.add(purchase));
@@ -262,12 +291,28 @@ export async function addCatalogItem(input){
       ?inventoryAttributes(shop,{type,categoryId,attributes:prev?.attributes},input.attributes):null;
     const beginning=prev ? stockInt(prev.stockQty||0,'Stock') : stockInt(input.openingStockQty||0,'Opening stock');
     if(prev&&isStockProduct(prev)&&prev.type!==type)throw Error('The stock item type cannot be changed.');
-    if(prev?.tyreIdentity && tyreIdentity(prev.inventoryMode,{
-      brand:input.brand??prev.brand,model:input.model??prev.model,size:input.size??prev.size
-    })!==prev.tyreIdentity)throw Error('Stock identity cannot change. Add a separate tyre for a different brand, model or size.');
+    let nextTyreIdentity;
+    if(type==='tyre'&&prev){
+      const oldBase=tyreIdentity(prev.inventoryMode,prev);
+      const changed={brand:input.brand??prev.brand,model:input.model??prev.model,
+        size:input.size??prev.size,attributes:attributes??prev.attributes};
+      const newBase=tyreIdentity(prev.inventoryMode,changed);
+      if(prev.tyreIdentity&&oldBase!==newBase)
+        throw Error('Brand, model and size cannot change on existing tyre stock.');
+      const desired=tyreIdentity(prev.inventoryMode,changed,shop);
+      if(isVariantTyre(prev)&&desired!==prev.tyreIdentity)
+        throw Error('Stock-identifying tyre fields cannot change after classification. Create a new variant.');
+      if(desired&&desired!==prev.tyreIdentity){
+        const peers=await request(store.index('type').getAll('tyre'));
+        if(peers.some(p=>p.id!==prev.id&&p.tyreIdentity===desired))
+          throw Error('Another tyre already uses that combination of classification fields.');
+        nextTyreIdentity=desired;
+      }
+    }
     const now=new Date().toISOString();
     const value={...(prev||{}),id:input.id||uid(),name,searchName:name.toLowerCase(),type,pricePaise:price,taxBps:rate,code:safeText(input.code??prev?.code),sku:safeText(input.sku??prev?.sku),brand:safeText(input.brand??prev?.brand),model:safeText(input.model??prev?.model),size:safeText(input.size??prev?.size),supplier:safeText(input.supplier??prev?.supplier),costPaise:cost,lowStockAt:stockInt(input.lowStockAt??prev?.lowStockAt??5,'Low-stock threshold'),stockQty:beginning,trackStock:stockEnabled,isActive:input.isActive!==false,updatedAt:now,createdAt:prev?.createdAt||now};
     if(type==='product')value.categoryId=categoryId;
+    if(nextTyreIdentity)value.tyreIdentity=nextTyreIdentity;
     if(attributes)value.attributes=attributes;
     await request(store.put(value));
     if(!prev&&stockEnabled&&beginning>0){await request(tx.objectStore('inventoryMovements').add({id:uid(),productId:value.id,productName:value.name,delta:beginning,balanceAfter:beginning,type:'opening',note:'Opening stock',createdAt:now}));}
