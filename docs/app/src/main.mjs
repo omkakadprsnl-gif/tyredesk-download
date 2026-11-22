@@ -195,6 +195,8 @@ function mobileNavigation(){
 async function nav(page){state.page=page;state.menuOpen=false;state.modal=null;state.search='';if(page==='billing'&&!state.bill)startBill();render();window.scrollTo(0,0);if(state.data?.dashboard&&needsFullHistory(page))await refresh();}
 // Native Android Back closes the current overlay before leaving the application.
 window.TyreDeskCloseTopLayer=()=>{
+ const legalDialog=$('dialog[data-legal-dialog][open]');
+ if(legalDialog){legalDialog.close();return true;}
  if(state.modal){closeModal();return true;}
  if(state.menuOpen){state.menuOpen=false;render();return true;}
  return false;

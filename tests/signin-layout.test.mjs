@@ -88,14 +88,22 @@ try{
         assert.equal(await page.locator('[name=username]').inputValue(),'draft-shop');
         assert.equal(await page.locator('[name=password]').inputValue(),'draft-password');
       }
+      await page.getByRole('link',{name:'Privacy Policy',exact:true}).click();
+      await page.locator('.legal-dialog').waitFor();
+      assert.equal(await page.evaluate(()=>window.TyreDeskCloseTopLayer()),true);
+      await page.locator('.legal-dialog').waitFor({state:'detached'});
     }
     if(width<=390){
       await page.setViewportSize({width,height:480});
       for(const selector of ['[name=username]','[name=password]','[name=allowSync]','#cloud-form button[type=submit]']){
         const control=page.locator(selector);
         await control.scrollIntoViewIfNeeded();
-        const box=await control.boundingBox();
-        assert.ok(box&&box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=480,selector+' at '+width);
+        const reachable=await control.evaluate(element=>{
+          const {left,top,right,bottom,width,height}=element.getBoundingClientRect();
+          const hit=document.elementFromPoint(left+width/2,top+height/2);
+          return left>=-1&&right<=innerWidth+1&&top>=-1&&bottom<=innerHeight+1&&element.contains(hit);
+        });
+        assert.ok(reachable,selector+' at '+width);
       }
       assert.equal(await page.locator('[name=allowSync]').isChecked(),false);
     }
