@@ -1,0 +1,105 @@
+name: Publish signed TyreDesk 1.3.6
+on:
+  push:
+    branches: [tyredesk-136-publish]
+    paths: ['.github/workflows/publish-tyredesk-136.yml']
+permissions:
+  contents: write
+  issues: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh api "repos/${{ github.repository }}/issues/2/comments" -f body="TyreDesk 1.3.6 publication started: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Download and independently verify signed APK
+        env:
+          ARTIFACT_URL: 'https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-e7a8-8210-95ec-72b2039048d1/raw?se=2026-11-22T12%3A30%3A45Z&sp=r&sv=2026-06-06&sr=b&scid=af60c996-b947-59dc-88ce-6cecbe7ddb95&skoid=9b41a688-1b44-4731-856e-b0efcf3660ed&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-22T05%3A55%3A46Z&ske=2026-11-23T05%3A55%3A46Z&sks=b&skv=2026-06-06&sig=KRgsdcZ8%2B9k1kLt2EJxb7YqlO7G7OJJTIwbFfXWVzT8%3D'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 90 "$ARTIFACT_URL" -o /tmp/tyredesk-136-release.zip
+          unzip -t /tmp/tyredesk-136-release.zip >/dev/null
+          unzip -p /tmp/tyredesk-136-release.zip TyreDesk.apk > /tmp/TyreDesk-1.3.6.apk
+          echo 'b17a2dbc7f295df5b4ac834bac2e185c9569177f270af4b40c570bcf106be1f6  /tmp/TyreDesk-1.3.6.apk' | sha256sum -c -
+          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          OLD_CERT=$("$SIGNER" verify --print-certs docs/TyreDesk.apk | grep -m1 'Signer #1 certificate SHA-256 digest:')
+          NEW_CERT=$("$SIGNER" verify --print-certs /tmp/TyreDesk-1.3.6.apk | grep -m1 'Signer #1 certificate SHA-256 digest:')
+          test "$OLD_CERT" = "$NEW_CERT"
+          "$SIGNER" verify --verbose /tmp/TyreDesk-1.3.6.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging /tmp/TyreDesk-1.3.6.apk > /tmp/tyredesk-package.txt
+          grep -q "name='com.tyredesk.offline'" /tmp/tyredesk-package.txt
+          grep -q "versionCode='20'" /tmp/tyredesk-package.txt
+          grep -q "versionName='1.3.6'" /tmp/tyredesk-package.txt
+          ! grep -q application-debuggable /tmp/tyredesk-package.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions /tmp/TyreDesk-1.3.6.apk > /tmp/tyredesk-permissions.txt
+          ! grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' /tmp/tyredesk-permissions.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree /tmp/TyreDesk-1.3.6.apk AndroidManifest.xml > /tmp/tyredesk-manifest.txt
+          ! grep -q 'FileProvider' /tmp/tyredesk-manifest.txt
+          unzip -p /tmp/TyreDesk-1.3.6.apk assets/www/src/updates.js | grep -q 'openUpdatePage'
+          unzip -p /tmp/TyreDesk-1.3.6.apk assets/www/src/main.js | grep -q 'Open Download Page'
+          grep -q "WEB_VERSION='1.3.6'" docs/app/src/updates.mjs
+          grep -q 'invoice-storage.mjs' docs/app/sw.js
+          ! grep -q 'Import supplier PDF' docs/app/src/main.mjs
+      - name: Publish APK, checksum and release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/TyreDesk-1.3.6.apk docs/TyreDesk.apk
+          printf '%s  TyreDesk.apk\n' 'b17a2dbc7f295df5b4ac834bac2e185c9569177f270af4b40c570bcf106be1f6' > docs/TyreDesk.apk.sha256
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          filename=Path('docs/release.json')
+          data=json.loads(filename.read_text(encoding='utf8'))
+          assert data['version']=='1.3.5' and data['androidVersionCode']==19, 'Release changed: abort'
+          data.update({
+              'version':'1.3.6',
+              'webVersion':'1.3.6',
+              'androidVersionCode':20,
+              'apkSha256':'b17a2dbc7f295df5b4ac834bac2e185c9569177f270af4b40c570bcf106be1f6',
+              'appCommit':'6c889dd788479297854d441b3299018e1dcf919e',
+              'webCommit':'6c889dd788479297854d441b3299018e1dcf919e',
+              'androidBuildCommit':'d7a6ab5168b740b3e6a0bc3d0430dc005b9d095c',
+              'releaseDate':'2026-11-22'
+          })
+          filename.write_text(json.dumps(data,indent=2)+'\n',encoding='utf8')
+          notes=Path('docs/RELEASE-NOTES.md')
+          old=notes.read_text(encoding='utf8')
+          head=("# TyreDesk 1.3.6\n\n"
+                "Removed the Android APK self-installer and its REQUEST_INSTALL_PACKAGES permission and FileProvider. "
+                "TyreDesk still checks for new versions and shows Update Available. The update button now opens the "
+                "official HTTPS download page in a browser; install the signed APK over the existing app without uninstalling. "
+                "Daily backups, thermal receipt printing, offline storage, invoices and Supabase synchronization remain. "
+                "Updated the offline service worker cache and corrected mobile update-button layout.\n\n"
+                "SHA-256: `b17a2dbc7f295df5b4ac834bac2e185c9569177f270af4b40c570bcf106be1f6`\n\n"
+                "Google Play Protect may still warn about downloaded APKs. The exact warning must be checked on a real Android phone; "
+                "do not disable Play Protect or bypass a harmful-app warning.\n\n")
+          notes.write_text(head+old,encoding='utf8')
+          PY
+          grep -q 'Version 1.3.6' docs/index.html
+      - name: Commit verified APK to the official download website
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'TyreDesk Release Automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/TyreDesk.apk docs/TyreDesk.apk.sha256 docs/release.json docs/RELEASE-NOTES.md
+          git commit -m 'Publish signed TyreDesk 1.3.6 browser-update release'
+          git push origin HEAD:main
+      - name: Report publication outcome
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+        shell: bash
+        run: |
+          gh api "repos/${{ github.repository }}/issues/2/comments" -f body="TyreDesk 1.3.6 publication result: $RESULT. Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}."
