@@ -52,6 +52,14 @@ try{
   const fits=async label=>{
    const widths=await page.evaluate(()=>({view:document.documentElement.clientWidth,doc:document.documentElement.scrollWidth,
      body:document.body.scrollWidth}));
+   if(widths.doc>widths.view+1||widths.body>widths.view+1){
+    const offenders=await page.evaluate(()=>[...document.querySelectorAll('*')]
+      .map(el=>({el,right:el.getBoundingClientRect().right,width:el.getBoundingClientRect().width}))
+      .filter(item=>item.right>document.documentElement.clientWidth+3)
+      .sort((a,b)=>b.right-a.right).slice(0,16)
+      .map(item=>({tag:item.el.tagName,css:typeof item.el.className==='string'?item.el.className.slice(0,90):'',right:Math.round(item.right),width:Math.round(item.width),text:(item.el.textContent||'').slice(0,60)})));
+    console.error('TyreDesk mobile overflow details:',JSON.stringify({label,widths,offenders}));
+   }
    assert.ok(widths.doc<=widths.view+1&&widths.body<=widths.view+1,label+': '+JSON.stringify(widths));
   };
   for(const name of ['dashboard','customers','inventory','billing','sales','expenses','reports','catalog','settings','dues','reminders']){
