@@ -1,4 +1,4 @@
-export const WEB_VERSION='1.3.4';
+export const WEB_VERSION='1.3.6';
 
 function newerVersion(candidate,current){
   if(!/^\d+\.\d+\.\d+$/.test(candidate))return false;
@@ -51,7 +51,11 @@ export function checkUpdates(){
 }
 
 export async function installAppUpdate(){
-  if(window.TyreDeskAndroid?.installUpdate){window.TyreDeskAndroid.installUpdate();return;}
+  if(window.TyreDeskAndroid?.openUpdatePage){window.TyreDeskAndroid.openUpdatePage();return;}
+  if(window.TyreDeskAndroid){
+    // Never attempt a website-only service-worker refresh inside an Android APK.
+    throw Error('Use the official TyreDesk download page to install a signed Android update.');
+  }
   const worker=await navigator.serviceWorker?.getRegistration();
   await worker?.update();
   const installing=worker?.installing||worker?.waiting;
