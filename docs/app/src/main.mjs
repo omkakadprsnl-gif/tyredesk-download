@@ -854,38 +854,40 @@ document.addEventListener('touchend',event=>{
  if(dx < -80&&Math.abs(dx)>Math.abs(dy)*1.5){state.menuOpen=false;render();}
 },{passive:true});
 
-// Keep the focused field visible above Android's soft keyboard and avoid
-// displaying a bottom navigation bar above the keyboard.
+// Keep every mobile dialog inside Android's *visible* viewport when the
+// keyboard opens. Never scroll the document behind a dialog to focus an input.
 if(window.visualViewport){
  let fullHeight=window.visualViewport.height;
+ const viewport=window.visualViewport;
+ const scrollFocusedInput=()=>{
+  const target=document.activeElement;
+  if(!target?.matches?.('input,textarea,select')||!target.isConnected)return;
+  const region=target.closest('.modal-body');
+  if(region){
+   const bounds=region.getBoundingClientRect(),field=target.getBoundingClientRect();
+   if(field.bottom>bounds.bottom-12)region.scrollTop+=field.bottom-bounds.bottom+12;
+   else if(field.top<bounds.top+12)region.scrollTop+=field.top-bounds.top-12;
+  }
+ };
  const viewportChanged=()=>{
-  const vv=window.visualViewport;
   const focused=document.activeElement;
   const typing=focused?.matches?.('input:not([type="checkbox"]):not([type="radio"]),textarea,select');
-  if(!typing)fullHeight=Math.max(fullHeight,vv.height);
-  const keyboardOpen=!!typing&&fullHeight-vv.height>130;
+  if(!typing)fullHeight=Math.max(fullHeight,viewport.height);
+  const keyboardOpen=!!typing&&fullHeight-viewport.height>130;
   document.documentElement.classList.toggle('keyboard-open',keyboardOpen);
-  document.documentElement.style.setProperty('--visible-screen-height',Math.round(vv.height)+'px');
+  document.documentElement.style.setProperty('--visible-screen-height',Math.round(viewport.height)+'px');
+  document.documentElement.style.setProperty('--visible-screen-top',Math.round(viewport.offsetTop)+'px');
+  if(typing&&focused?.closest('.modal-body'))requestAnimationFrame(scrollFocusedInput);
  };
- window.visualViewport.addEventListener('resize',viewportChanged);
- window.visualViewport.addEventListener('scroll',viewportChanged);
+ viewport.addEventListener('resize',viewportChanged);
+ viewport.addEventListener('scroll',viewportChanged);
  document.addEventListener('focusin',event=>{
-  if(!event.target.matches('input,textarea'))return;
-  fullHeight=Math.max(fullHeight,window.visualViewport.height);
-  setTimeout(()=>{
-   viewportChanged();
-   const target=event.target;
-   if(target.isConnected&&document.activeElement===target){
-    const region=target.closest('.purchase-dialog .modal-body');
-    if(region){
-     const bounds=region.getBoundingClientRect(),field=target.getBoundingClientRect();
-     if(field.bottom>bounds.bottom-10)region.scrollTop+=field.bottom-bounds.bottom+10;
-     else if(field.top<bounds.top+10)region.scrollTop+=field.top-bounds.top-10;
-    }else target.scrollIntoView({block:'center',behavior:'smooth'});
-   }
-  },210);
+  if(!event.target.matches('input,textarea,select'))return;
+  fullHeight=Math.max(fullHeight,viewport.height);
+  requestAnimationFrame(()=>{viewportChanged();scrollFocusedInput();});
+  setTimeout(()=>{viewportChanged();scrollFocusedInput();},240);
  });
- document.addEventListener('focusout',()=>setTimeout(viewportChanged,220));
+ document.addEventListener('focusout',()=>setTimeout(viewportChanged,240));
  viewportChanged();
 }
 window.setInterval(tickReminderIndicator,60*1000);
