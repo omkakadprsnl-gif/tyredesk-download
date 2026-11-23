@@ -36,6 +36,8 @@ jobs:
         run: node tests/tyre-classification.test.mjs
       - name: Test immutable shop-defined identifiers and Monday backup reminders
         run: node tests/shop-fields.test.mjs
+      - name: Verify service invoice charges have no quantity label
+        run: node tests/service-no-quantity.test.mjs
       - name: Validate permanent identifier enforcement in PostgreSQL
         run: node tests/shop-fields-db.test.mjs
       - name: Verify financial edge cases and database authorization
