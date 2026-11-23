@@ -1,16 +1,13 @@
 -- TyreDesk: shop-defined permanent tyre identifiers in Detailed mode.
 -- Brand remains required; all other stock-key names are chosen at first setup.
 -- Legacy detailed [brand, model, size] and variant identities remain supported.
--- Temporarily assume the existing least-privilege function owner, as in the
--- previous classification migration; restore original grants afterward.
-grant tyredesk_rpc to postgres;
-grant create on schema tyredesk to tyredesk_rpc;
-set role tyredesk_rpc;
-
-CREATE OR REPLACE FUNCTION tyredesk.guard_inventory_identity()
+-- Preserve the prior guard and its restricted owner. A new SECURITY INVOKER
+-- guard runs with the sync RPC's existing table privileges, never with
+-- postgres-level SECURITY DEFINER powers. Switch the deferred trigger atomically.
+CREATE OR REPLACE FUNCTION tyredesk.guard_inventory_identity_v2()
  RETURNS trigger
  LANGUAGE plpgsql
- SECURITY DEFINER
+ SECURITY INVOKER
  SET search_path TO ''
 AS $function$
 declare
@@ -176,7 +173,12 @@ begin
   return new;
 end
 $function$
-reset role;
-revoke create on schema tyredesk from tyredesk_rpc;
-revoke tyredesk_rpc from postgres;
+-- Trigger swap is transactional: failed migration leaves the old guard active.
+drop trigger tyredesk_guard_inventory_identity on tyredesk.records;
+create constraint trigger tyredesk_guard_inventory_identity
+after insert or update on tyredesk.records
+deferrable initially deferred
+for each row when (new.kind in ('settings','catalog'))
+execute function tyredesk.guard_inventory_identity_v2();
+revoke all on function tyredesk.guard_inventory_identity_v2() from public;
 notify pgrst, 'reload schema';
