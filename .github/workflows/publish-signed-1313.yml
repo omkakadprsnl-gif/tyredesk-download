@@ -1,0 +1,86 @@
+name: Publish verified TyreDesk 1.3.13 signed Android update
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-signed-1313.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download signed and verified Android release artifact
+        env:
+          RELEASE_ZIP_URL: 'https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-0670-8210-a1ab-97659278142b/raw?se=2026-11-23T09%3A06%3A24Z&sp=r&sv=2026-06-06&sr=b&scid=9b866a41-f41f-5602-b4f6-2b0fd4ca1809&skoid=9b41a688-1b44-4731-856e-b0efcf3660ed&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-23T04%3A54%3A33Z&ske=2026-11-24T04%3A54%3A33Z&sks=b&skv=2026-06-06&sig=RK%2Beemdi8nyW9IeMXwzMOI2Jv928QA/2VI/bw3sGu5c%3D'
+          EXPECTED_ZIP_SHA256: '109e2d7e695fca84a4e7d564de0ee7e97878ad31a48a04cd08e3cca45c4df7a9'
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 180 "$RELEASE_ZIP_URL" -o /tmp/tyredesk-release.zip
+          printf '%s  /tmp/tyredesk-release.zip\n' "$EXPECTED_ZIP_SHA256" | sha256sum -c -
+          unzip -t /tmp/tyredesk-release.zip >/dev/null
+          unzip -p /tmp/tyredesk-release.zip TyreDesk.apk > docs/TyreDesk.apk
+          unzip -t docs/TyreDesk.apk >/dev/null
+          unzip -p /tmp/tyredesk-release.zip package-info.txt | grep -F "versionCode='27'"
+          unzip -p /tmp/tyredesk-release.zip package-info.txt | grep -F "versionName='1.3.13'"
+      - name: Check embedded features and publish release manifest
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib,zipfile
+          base=Path('docs')
+          apk=base/'TyreDesk.apk'
+          sha=hashlib.sha256(apk.read_bytes()).hexdigest()
+          expected='833d768c3f2e573bd738964f21d91bcaeb6efb703196981717e84a65447af1fb'
+          assert sha==expected,'unexpected APK hash'
+          with zipfile.ZipFile(apk) as archive:
+              files={
+                'assets/www/src/main.js':['Check if a newer TyreDesk version is ready','Open Download Page','Update App'],
+                'assets/www/src/updates.js':['1.3.13','openUpdatePage'],
+                'assets/www/styles.css':['Shared Android keyboard-safe modal layout','flex-direction:column!important'],
+              }
+              for filename,needles in files.items():
+                  source=archive.read(filename).decode('utf8')
+                  for needle in needles: assert needle in source,(filename,needle)
+          manifest_path=base/'release.json'
+          release=json.loads(manifest_path.read_text())
+          assert release['version']=='1.3.11' and release['androidVersionCode']==25,'published version changed; investigate'
+          release.update({
+              'version':'1.3.13',
+              'webVersion':'1.3.13',
+              'androidVersionCode':27,
+              'apkSha256':sha,
+              'appCommit':'ac9ec8506bcd7b7ef2a1feb2588f84eafce6f8c8',
+              'webCommit':'ac9ec8506bcd7b7ef2a1feb2588f84eafce6f8c8',
+              'androidBuildCommit':'2f90a9da5272612f150caab5187acd4ac738b8e7',
+              'releaseDate':'2026-11-23',
+          })
+          manifest_path.write_text(json.dumps(release,indent=2)+'\n')
+          (base/'TyreDesk.apk.sha256').write_text(sha+'  TyreDesk.apk\n')
+          page=base/'index.html'
+          page_text=page.read_text()
+          assert page_text.count('Version 1.3.11')==1
+          page.write_text(page_text.replace('Version 1.3.11','Version 1.3.13'))
+          notes=base/'RELEASE-NOTES.md'
+          note_text=notes.read_text()
+          preface='''# TyreDesk 1.3.13 — Mobile keyboard and Android update access
+
+          Android form dialogs now use a shared keyboard-aware layout intended to keep fields and Save/Cancel actions accessible while typing. The Home screen provides a manual **Check for updates** action, and Settings → Update App always displays **Open Download Page**. TyreDesk also checks for new versions automatically and displays an **Update Available** banner when an update is detected.
+
+          Tap **Open Download Page** to download the digitally signed APK and install it over the existing TyreDesk app. Do not uninstall or clear storage. The upgrade was checked using an Android emulator; verify keyboard behavior on each real phone before commercial rollout.
+
+          '''
+          notes.write_text(preface+note_text)
+          print('Release prepared:',sha)
+          PY
+      - name: Commit and publish signed release
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/TyreDesk.apk docs/TyreDesk.apk.sha256 docs/release.json docs/index.html docs/RELEASE-NOTES.md
+          git diff --cached --stat
+          git diff --cached --quiet && exit 1
+          git commit -m "Publish verified signed TyreDesk 1.3.13 with keyboard and update controls"
+          git push origin HEAD:main
