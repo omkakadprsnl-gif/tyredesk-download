@@ -1,0 +1,103 @@
+name: Publish verified signed TyreDesk 1.3.11
+on:
+  push:
+    branches: [tyredesk-141-publish]
+    paths: ['.github/workflows/publish-tyredesk-141.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Retrieve exact signed APK from passing Android CI
+        env:
+          ARTIFACT_URL: 'https://sdmntprcentralindia.oaiusercontent.com/files/00000000-b1cc-8208-9323-45e983366f33/raw?se=2026-11-23T01%3A08%3A23Z&sp=r&sv=2026-06-06&sr=b&scid=ba60d370-b7bc-5e8a-a040-60999b8a5dd1&skoid=3cb6de21-012a-49c9-9402-a1ebf8d0bd06&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-22T04%3A08%3A46Z&ske=2026-11-23T04%3A08%3A46Z&sks=b&skv=2026-06-06&sig=9e/zloCsvbvU1o42pcXDyjbb2Q7bxxRB1MDW/gK6kkk%3D'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 2 --max-time 150 "$ARTIFACT_URL" -o "$RUNNER_TEMP/tyredesk-141.zip"
+          unzip -t "$RUNNER_TEMP/tyredesk-141.zip" >/dev/null
+          unzip -p "$RUNNER_TEMP/tyredesk-141.zip" TyreDesk.apk > "$RUNNER_TEMP/TyreDesk-1.3.11.apk"
+          echo 'e3639fa755cb129008aac1ebab15667b9ca8bb974ee702800b64e738b0e623a7  '"$RUNNER_TEMP/TyreDesk-1.3.11.apk" | sha256sum --check -
+          unzip -p "$RUNNER_TEMP/tyredesk-141.zip" SHA256.txt | grep -q 'e3639fa755cb129008aac1ebab15667b9ca8bb974ee702800b64e738b0e623a7'
+      - name: Check out merged and tested source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Verify signer continuity, exact version and compiled features
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$RUNNER_TEMP/TyreDesk-1.3.11.apk"
+          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          OLD_CERT=$("$SIGNER" verify --print-certs docs/TyreDesk.apk | grep -m1 'Signer #1 certificate SHA-256 digest:')
+          NEW_CERT=$("$SIGNER" verify --print-certs "$APK" | grep -m1 'Signer #1 certificate SHA-256 digest:')
+          test "$OLD_CERT" = "$NEW_CERT"
+          "$SIGNER" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > "$RUNNER_TEMP/package.txt"
+          grep -q "name='com.tyredesk.offline'" "$RUNNER_TEMP/package.txt"
+          grep -q "versionCode='25'" "$RUNNER_TEMP/package.txt"
+          grep -q "versionName='1.3.11'" "$RUNNER_TEMP/package.txt"
+          ! grep -q application-debuggable "$RUNNER_TEMP/package.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > "$RUNNER_TEMP/permissions.txt"
+          ! grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' "$RUNNER_TEMP/permissions.txt"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml > "$RUNNER_TEMP/manifest.txt"
+          ! grep -q 'FileProvider' "$RUNNER_TEMP/manifest.txt"
+          grep -q "WEB_VERSION='1.3.11'" docs/app/src/updates.mjs
+          grep -q 'tyredesk-pwa-web-v1.3.11' docs/app/sw.js
+          grep -q 'TyreDesk 1.3.11' docs/RELEASE-NOTES.md
+          grep -q 'mondayBackupDue' docs/app/src/main.mjs
+          grep -q 'tyreIdentitySchema' docs/app/src/main.mjs
+          unzip -p "$APK" assets/www/src/main.js > "$RUNNER_TEMP/main.js"
+          grep -q 'Service charge' "$RUNNER_TEMP/main.js"
+          grep -q 'tyreIdentitySchema' "$RUNNER_TEMP/main.js"
+          grep -q 'mondayBackupDue' "$RUNNER_TEMP/main.js"
+          unzip -p "$APK" assets/www/src/backup-reminder.js | grep -q 'mondayBackupDue'
+          unzip -p "$APK" assets/www/src/updates.js | grep -q '1.3.11'
+          ! unzip -p "$APK" assets/www/src/main.js | grep -q 'Import supplier PDF'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('docs/release.json').read_text())
+          assert r['version']=='1.3.10' and r['androidVersionCode']==24, 'Release advanced; abort'
+          assert Path('docs/index.html').read_text().count('Version 1.3.10')==1
+          PY
+      - name: Atomically publish exact APK and release metadata
+        shell: bash
+        env:
+          APK_SHA: 'e3639fa755cb129008aac1ebab15667b9ca8bb974ee702800b64e738b0e623a7'
+          WEB_SHA: '2326c05c5b5233202f3525d60c8d06ddece7566d'
+          ANDROID_SHA: '7dc6781e6530bf3eca336532cc166ea325519eec'
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/TyreDesk-1.3.11.apk" docs/TyreDesk.apk
+          printf '%s  TyreDesk.apk\n' "$APK_SHA" > docs/TyreDesk.apk.sha256
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path('docs/release.json')
+          data=json.loads(p.read_text(encoding='utf8'))
+          assert data['version']=='1.3.10' and data['androidVersionCode']==24
+          data.update({
+            'version':'1.3.11',
+            'webVersion':'1.3.11',
+            'androidVersionCode':25,
+            'apkSha256':os.environ['APK_SHA'],
+            'appCommit':os.environ['WEB_SHA'],
+            'webCommit':os.environ['WEB_SHA'],
+            'androidBuildCommit':os.environ['ANDROID_SHA'],
+            'supabase':True,
+            'releaseDate':'2026-11-23'
+          })
+          p.write_text(json.dumps(data,indent=2)+'\n',encoding='utf8')
+          site=Path('docs/index.html')
+          html=site.read_text(encoding='utf8')
+          assert html.count('Version 1.3.10')==1
+          site.write_text(html.replace('Version 1.3.10','Version 1.3.11'),encoding='utf8')
+          PY
+          git config user.name 'TyreDesk Release Automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/TyreDesk.apk docs/TyreDesk.apk.sha256 docs/release.json docs/index.html
+          git commit -m 'Publish signed TyreDesk v1.3.11 shop-defined fields and mobile fixes'
+          git push origin HEAD:main
