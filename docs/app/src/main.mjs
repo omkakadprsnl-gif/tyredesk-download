@@ -733,7 +733,7 @@ async function runForm(form){const f=new FormData(form);const v=k=>String(f.get(
  const inventoryCategories=inventoryMode==='detailed'?[{id:'tyres',name:'Tyres',fields:chosen}]:[];
  const saltHex=salt(),pinHash=await hashPin(pin,saltHex);const s={id:'shop',inventoryMode,inventoryModeLocked:true,tyreIdentitySchema:inventoryMode==='detailed'?'field-based-v1':undefined,inventoryCategories,legalConsent,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:'',address:v('address'),city:v('city'),state:v('state'),gstin,invoicePrefix:v('invoicePrefix')||'INV',gstRegistered:gst,terms:'',language:v('language'),theme:'light',pinHash,pinSalt:saltHex,createdAt:now()};await finishFirstSetup(s,initialServices(f));await enterAccount();return;}
  if(form.id==='unlock-form'){const s=state.data.settings;if(await hashPin(v('pin'),s.pinSalt)!==s.pinHash)throw Error(T('wrongPin'));sessionStorage.setItem('tyredesk-unlocked','yes');await refresh();state.locked=false;render();updateCloudPresence();return;}
- if(form.id==='settings-form'){const s=state.data.settings;const gst=v('gstRegistered')==='true',gstin=v('gstin').toUpperCase();if(gst&&gstin.length!==15)throw Error('GST-registered businesses must enter a 15-character GSTIN');await saveSetting({...s,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:v('whatsapp'),address:v('address'),city:v('city'),state:v('state'),invoicePrefix:v('invoicePrefix').replace(/\W/g,'').slice(0,12)||'INV',gstRegistered:gst,gstin,terms:v('terms'),paymentQrData:f.get('removeQr')?'':await encodePaymentQr(f.get('paymentQr'),s.paymentQrData||'')});await refresh();toast(T('saveChanges'));return;}
+ if(form.id==='settings-form'){const s=state.data.settings;const gst=v('gstRegistered')==='true',gstin=v('gstin').toUpperCase();if(gst&&gstin.length!==15)throw Error('GST-registered businesses must enter a 15-character GSTIN');await saveSetting({...s,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:v('whatsapp'),address:v('address'),city:v('city'),state:v('state'),invoicePrefix:v('invoicePrefix').replace(/\W/g,'').slice(0,12)||'INV',gstRegistered:gst,gstin,terms:v('terms'),paymentQrData:f.get('removeQr')?'':await encodePaymentQr(f.get('paymentQr'),s.paymentQrData||'')});await refresh();render();toast(T('saveChanges'));return;}
  if(form.id==='reminder-form'){const date=new Date(v('due'));if(!v('due')||!Number.isFinite(date.getTime()))throw Error(T('remindersInvalidDate'));await saveReminder({id:form.dataset.id||undefined,title:v('title'),notes:v('notes'),dueAt:date.toISOString()});await refresh();closeModal();toast(T('remindersSaved'));return;}
  if(form.id==='customer-form'){const id=form.dataset.id;let c=await upsertCustomer({id:id||undefined,name:v('name'),phone:v('phone'),notes:v('notes')});if(v('vehicle')){try{await setVehicle(v('vehicle'),c.id);}catch(err){if(err.message.includes('different customer')&&window.confirm(T('vehicleWarning')+' Transfer association?'))await setVehicle(v('vehicle'),c.id,true);else throw err;}}await refresh();closeModal();toast(T('saveChanges'));return;}
  if(form.id==='inventory-mode-form'){await setInventoryMode(v('inventoryMode'));await refresh();toast('Inventory mode saved.');return;}
@@ -878,8 +878,11 @@ document.addEventListener('touchend',event=>{
 // Keep every mobile dialog inside Android's *visible* viewport when the
 // keyboard opens. Never scroll the document behind a dialog to focus an input.
 if(window.visualViewport){
- let fullHeight=window.visualViewport.height;
  const viewport=window.visualViewport;
+ // Some Android WebViews report a stale visualViewport while the window's
+ // actual layout height changes. Track both dimensions and always use the
+ // smaller valid space; Android adjustResize is enabled in the APK manifest.
+ let fullHeight=Math.max(window.innerHeight||0,viewport.height||0);
  const scrollFocusedInput=()=>{
   const target=document.activeElement;
   if(!target?.matches?.('input,textarea,select')||!target.isConnected)return;
@@ -892,19 +895,22 @@ if(window.visualViewport){
  };
  const viewportChanged=()=>{
   const focused=document.activeElement;
-  const typing=focused?.matches?.('input:not([type="checkbox"]):not([type="radio"]),textarea,select');
-  if(!typing)fullHeight=Math.max(fullHeight,viewport.height);
-  const keyboardOpen=!!typing&&fullHeight-viewport.height>130;
+  const typing=!!focused?.matches?.('input:not([type="checkbox"]):not([type="radio"]),textarea,select');
+  const layoutHeight=Math.max(1,Math.min(window.innerHeight||viewport.height,
+    document.documentElement.clientHeight||window.innerHeight||viewport.height));
+  const visibleHeight=Math.max(1,Math.min(layoutHeight,viewport.height||layoutHeight));
+  if(!typing)fullHeight=Math.max(fullHeight,layoutHeight,viewport.height||0);
+  const keyboardOpen=typing&&fullHeight-visibleHeight>130;
   document.documentElement.classList.toggle('keyboard-open',keyboardOpen);
-  document.documentElement.style.setProperty('--visible-screen-height',Math.round(viewport.height)+'px');
-  document.documentElement.style.setProperty('--visible-screen-top',Math.round(viewport.offsetTop)+'px');
-  if(typing&&focused?.closest('.modal-body'))requestAnimationFrame(scrollFocusedInput);
+  document.documentElement.style.setProperty('--visible-screen-height',Math.round(visibleHeight)+'px');
+  document.documentElement.style.setProperty('--visible-screen-top',Math.round(Math.max(0,viewport.offsetTop||0))+'px');
+  if(typing&&focused.closest('.modal-body'))requestAnimationFrame(scrollFocusedInput);
  };
  viewport.addEventListener('resize',viewportChanged);
  viewport.addEventListener('scroll',viewportChanged);
+ window.addEventListener('resize',viewportChanged);
  document.addEventListener('focusin',event=>{
   if(!event.target.matches('input,textarea,select'))return;
-  fullHeight=Math.max(fullHeight,viewport.height);
   requestAnimationFrame(()=>{viewportChanged();scrollFocusedInput();});
   setTimeout(()=>{viewportChanged();scrollFocusedInput();},240);
  });

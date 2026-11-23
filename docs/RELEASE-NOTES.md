@@ -1,3 +1,7 @@
+# TyreDesk 1.3.12 — Android keyboard and form layout
+
+Fix the mobile dialog layout when Android's on-screen keyboard opens. The purchase form, Expenses, Reminders and other dialogs now share a single header / scrollable-body / anchored-action-buttons grid. Save/Cancel remain at the actual bottom of the visible dialog, and the app's bottom navigation is hidden while forms are open or text fields are focused. Detect a resized Android WebView using both the layout and visual viewports to prevent keyboard occlusion. Business records, stock identifiers and database schema are unchanged. Install the signed Android upgrade over the existing app; do not uninstall.
+
 # TyreDesk 1.3.11 — One-time shop tyre setup and mobile forms
 
 During **first business setup**, choose Simple or Detailed inventory permanently. Detailed shops configure the tyre-identification fields they actually use: Brand stays required, while the owner can keep, rename, remove or add fields such as Color, Size, Product Code or Ply Rating **before creating the shop**. The chosen fields—not hardcoded Model and Size—are used for purchasing, restocking, inventory search, separate tyre-stock identities, billing and CSV exports. After setup, the configuration is fixed to protect stock and invoice history. Existing shops and old tyre identities retain their historical formats.
