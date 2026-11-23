@@ -398,7 +398,7 @@ function settings(){const s=state.data.settings;return header(T('settings'),T('s
 // same document-level scrolling for long editable forms, not fixed nested modals.
 let nativeFormReturnY=0;
 function modal(title,subtitle,body,footer='',wide=false,variant=''){
- const useNativeFormPage=nativeAndroid()&&/<form\\b[^>]*\\bid="(?:purchase-form|reminder-form|expense-form)"/.test(body);
+ const useNativeFormPage=nativeAndroid()&&/<form\b[^>]*\bid="(?:purchase-form|reminder-form|expense-form)"/.test(body);
  if(useNativeFormPage&&!document.documentElement.classList.contains('tyredesk-native-form-page'))nativeFormReturnY=window.scrollY;
  document.documentElement.classList.toggle('tyredesk-native-form-page',useNativeFormPage);
  state.modal=`<div class="overlay ${variant}" data-close-modal><div class="modal ${wide?'xl':''}" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>${title}</h2>${subtitle?`<p>${subtitle}</p>`:''}</div><button class="icon-button" data-action="close-modal" aria-label="Close">${I('close')}</button></div><div class="modal-body">${body}</div>${footer?`<div class="modal-footer">${footer}</div>`:''}</div></div>`;
