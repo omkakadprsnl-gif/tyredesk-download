@@ -7,7 +7,7 @@ const root=new URL('../docs/app/',import.meta.url);
 const server=http.createServer(async(req,res)=>{
  try{
   const uri=new URL(req.url,'http://local').pathname;
-  const name=uri.startsWith('/app/')?uri.slice(5):'index.html';
+  const name=(uri.startsWith('/app/')?uri.slice(5):'index.html')||'index.html';
   const file=new URL(name||'index.html',root);
   if(!file.href.startsWith(root.href))return res.writeHead(404).end();
   res.setHeader('Content-Type',({mjs:'application/javascript',js:'application/javascript',css:'text/css',html:'text/html'})[name.split('.').at(-1)]||'application/octet-stream');
