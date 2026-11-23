@@ -46,8 +46,8 @@ try{
    assert.ok(before.classEnabled&&before.shellHidden&&before.position==='relative'&&before.bodyOverflow==='visible',
       formId+' must behave as ordinary scrollable page: '+JSON.stringify(before));
    await page.setViewportSize({width,height:350});
-   await page.evaluate(()=>document.querySelector('.modal-body input:last-of-type')?.focus());
-   await page.evaluate(()=>document.querySelector('.modal-body input:last-of-type')?.scrollIntoView({block:'center'}));
+   await page.evaluate(()=>[...document.querySelectorAll('.modal-body input')].at(-1)?.focus());
+   await page.evaluate(()=>[...document.querySelectorAll('.modal-body input')].at(-1)?.scrollIntoView({block:'center'}));
    const after=await page.evaluate(()=>{
      const fields=[...document.querySelectorAll('.modal-body input')];
      const last=fields.at(-1).getBoundingClientRect();
