@@ -94,6 +94,10 @@ try{
   await bill.locator('[name=qty]').fill('1');
   await bill.getByRole('button',{name:'Add tyre to bill'}).click();
   await page.getByText('Color: Red',{exact:false}).first().waitFor();
+  await page.locator('[data-action=add-line]').click();
+  const service=page.locator('.compact-bill-line').last();
+  assert.equal(await service.locator('[data-line-field=qty]').count(),0,'Service quantity editor must not exist');
+  assert.match(await service.locator('[data-line-caption]').innerText(),/Service charge/);
   await nav('expenses');
   await page.locator('[data-action=add-expense]').click();
   await page.locator('#expense-form [name=amount]').fill('1000');
