@@ -1,6 +1,6 @@
 import {inventoryCategories,productCategory,isStockProduct,isVariantTyre,tyreSearchText,tyreFields,stockKeyFields} from './tyres.mjs';
 import {initUpdates,checkUpdates,installAppUpdate,updateStatus} from './updates.mjs';
-import {inventoryMode,tyreName} from './tyres.mjs';
+import {inventoryMode,tyreName,customTyreFields,defaultTyreFields} from './tyres.mjs';
 import {modeChoices,purchaseFields,updatePurchaseFields,tyrePicker,updateTyrePicker} from './tyre-ui.mjs';
 import {loginCloud,firstRunStep,restoreAccount,finishFirstSetup,logoutCloud,cloudStatus,syncCloud,startCloud,restoreOffline,updateCloudPresence} from './cloud.mjs';
 import {getDatabase,saveReceivedDraft,receivedDraft, getSetting,saveSetting,saveReminder,completeReminder,summaryData,invoiceDetails,customerDetails,upsertCustomer,setVehicle,addCatalogItem,adjustStock,buyTyres,recordPurchase,saveInventoryCategory,setInventoryMode,completeOrder,editOrder,addPayment,recordRefund,cancelOrder,addExpense,exportBackup,packAndroidBackup,restoreBackup,searchCustomers,all,addAudit} from './db.mjs';
@@ -355,7 +355,21 @@ function initialServices(formData){
  if(services.length>50)throw Error('Add up to 50 services during setup. You can add more in Settings.');
  return services;
 }
-function renderSetup(){return setupFrame(`<form class="setup-form" id="setup-form"><div class="setup-progress">${I('wheel')}${T('onboardStep')}</div><h2>${T('onboardCreate')}</h2><p>Set up your shop once. You can update these details in Settings.</p><button type="button" class="button large" data-action="restore-drive">${I('upload')} Restore from Google Drive backup</button><p class="small-muted">Already used TyreDesk? Restore your previous shop instead of setting it up again.</p><input id="restore-file" type="file" accept=".json,application/json" hidden><div class="field-grid"><div class="field field-spread"><label>${T('businessName')} *</label><input name="name" required maxlength="100" placeholder="e.g. Your Tyre & Alignment Centre" autofocus></div><div class="field"><label>${T('ownerName')} *</label><input name="owner" required maxlength="70" placeholder="Owner's name"></div><div class="field"><label>${T('phone')} *</label><input name="phone" type="tel" required maxlength="20" placeholder="Shop contact"></div><div class="field field-spread"><label>${T('address')}</label><input name="address" maxlength="160" placeholder="Street, shop number, locality"></div><div class="field"><label>${T('city')}</label><input name="city" maxlength="65" placeholder="e.g. Jalna"></div><div class="field"><label>${T('state')}</label><input name="state" maxlength="65" value="Maharashtra"></div><div class="field"><label>${T('language')}</label><select name="language"><option value="en">English</option><option value="hi">हिंदी</option><option value="mr">मराठी</option></select></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="INV" maxlength="12" placeholder="INV"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false">${T('unregistered')}</option><option value="true">${T('registered')}</option></select></div><div class="field"><label>${T('gstin')} <span class="optional">(${T('optional')})</span></label><input name="gstin" maxlength="15" placeholder="15-character GSTIN"></div><div class="field"><label>${T('password')} *</label><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required autocomplete="new-password" placeholder="4–12 digits"><small>${T('ownerPinHelp')}</small></div><div class="field"><label>${T('confirmPassword')} *</label><input name="confirmPin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required placeholder="Repeat PIN"></div></div>${modeChoices()}${serviceSetupPanel()}<div class="consent"><label><input type="checkbox" name="legalConsent" required> I am authorised to set up this shop, agree to the TyreDesk Terms &amp; Conditions and acknowledge the Privacy Policy.</label><p>Read ${legalLinks()}. Acceptance is required to create a new shop.</p></div><button class="button primary large" type="submit">${T('onboardCreate')} ${I('arrow')}</button><div class="setup-foot">${I('lock')} ${T('securityNote')}</div></form>`);}
+
+function tyreSetupFields(){
+ return `<section class="setting-panel" data-setup-tyre-fields hidden>
+  <h3>Which tyre details does this shop use?</h3>
+  <p>Brand is always required. Keep, rename, remove, or add other tyre identifiers. These fields appear in inventory and billing. <strong>This choice is permanent when you create the shop.</strong></p>
+  <div class="field-grid" data-setup-tyre-rows>
+    ${defaultTyreFields().map(f=>`<div class="field field-spread setup-tyre-field" data-setup-tyre-field data-field-id="${E(f.id)}">
+      <label>Field name<input name="tyreField" maxlength="60" required value="${E(f.label)}" placeholder="e.g. Color or Product Code"></label>
+      <button type="button" class="button small" data-action="setup-remove-tyre-field">Remove field</button>
+    </div>`).join('')}
+  </div>
+  <button type="button" class="button" data-action="setup-add-tyre-field">Add different category</button>
+ </section>`;
+}
+function renderSetup(){return setupFrame(`<form class="setup-form" id="setup-form"><div class="setup-progress">${I('wheel')}${T('onboardStep')}</div><h2>${T('onboardCreate')}</h2><p>Set up your shop once. You can update these details in Settings.</p><button type="button" class="button large" data-action="restore-drive">${I('upload')} Restore from Google Drive backup</button><p class="small-muted">Already used TyreDesk? Restore your previous shop instead of setting it up again.</p><input id="restore-file" type="file" accept=".json,application/json" hidden><div class="field-grid"><div class="field field-spread"><label>${T('businessName')} *</label><input name="name" required maxlength="100" placeholder="e.g. Your Tyre & Alignment Centre" autofocus></div><div class="field"><label>${T('ownerName')} *</label><input name="owner" required maxlength="70" placeholder="Owner's name"></div><div class="field"><label>${T('phone')} *</label><input name="phone" type="tel" required maxlength="20" placeholder="Shop contact"></div><div class="field field-spread"><label>${T('address')}</label><input name="address" maxlength="160" placeholder="Street, shop number, locality"></div><div class="field"><label>${T('city')}</label><input name="city" maxlength="65" placeholder="e.g. Jalna"></div><div class="field"><label>${T('state')}</label><input name="state" maxlength="65" value="Maharashtra"></div><div class="field"><label>${T('language')}</label><select name="language"><option value="en">English</option><option value="hi">हिंदी</option><option value="mr">मराठी</option></select></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="INV" maxlength="12" placeholder="INV"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false">${T('unregistered')}</option><option value="true">${T('registered')}</option></select></div><div class="field"><label>${T('gstin')} <span class="optional">(${T('optional')})</span></label><input name="gstin" maxlength="15" placeholder="15-character GSTIN"></div><div class="field"><label>${T('password')} *</label><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required autocomplete="new-password" placeholder="4–12 digits"><small>${T('ownerPinHelp')}</small></div><div class="field"><label>${T('confirmPassword')} *</label><input name="confirmPin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required placeholder="Repeat PIN"></div></div>${modeChoices()}${tyreSetupFields()}${serviceSetupPanel()}<div class="consent"><label><input type="checkbox" name="legalConsent" required> I am authorised to set up this shop, agree to the TyreDesk Terms &amp; Conditions and acknowledge the Privacy Policy.</label><p>Read ${legalLinks()}. Acceptance is required to create a new shop.</p></div><button class="button primary large" type="submit">${T('onboardCreate')} ${I('arrow')}</button><div class="setup-foot">${I('lock')} ${T('securityNote')}</div></form>`);}
 function renderLocked(){const shop=state.data.settings;return `<main class="lock-layout"><div class="lock-art"><div class="showcase-logo"><div class="brand-mark">${I('wheel')}</div><span>TYRE<span>DESK</span></span></div></div><div class="lock-card"><div data-update-banner>${updateBanner()}</div><div class="eyebrow">SECURE WORKSPACE</div><h1>${T('locked')}.</h1><p>${E(shop.name)} · ${T('pinPrompt')}</p><form id="unlock-form"><div class="field"><label>${T('password')}</label><input type="password" name="pin" autocomplete="off" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required autofocus placeholder="••••••"></div><button class="button primary large" type="submit">${I('lock')}${T('unlockBtn')}${I('arrow')}</button></form></div></main>`;}
 function inventoryModePanel(){
  const mode=shopMode(),locked=state.data.catalog.some(p=>p.type==='tyre');
@@ -387,10 +401,12 @@ function submittedAttributes(data){
 }
 function categoriesPanel(){
  const others=shopCategories().filter(c=>c.id!=='tyres');
+ const fields=customTyreFields(state.data.settings)?tyreFields(state.data.settings).map(f=>f.label):
+   shopMode()==='detailed'?['Model','Size',...tyreFields(state.data.settings).map(f=>f.label)]:[];
  return `<section class="setting-panel">
-  <h2>Tyre classification</h2>
-  <p>Add extra details such as Load Index, Ply Rating or Construction. If two tyres with the same brand, model and size must be separate stock records, mark that field <strong>Separate tyre variants</strong>. Previously purchased tyres are never merged automatically.</p>
-  <button type="button" class="button" data-action="edit-category" data-category="tyres">Manage tyre fields</button>
+  <h2>Tyre identification</h2>
+  <p><strong>Brand</strong>${fields.length?' · '+fields.map(E).join(' · '):''}</p>
+  <p>Identification fields are chosen during business setup and fixed to protect inventory and invoices.</p>
   ${others.length?`<p class="small-muted">Earlier custom product categories are preserved for compatibility:</p>
    <ul class="settings-services">${others.map(c=>`<li><span>${E(c.name)}</span><button type="button" class="button small" data-action="edit-category" data-category="${E(c.id)}">Edit</button></li>`).join('')}</ul>`:''}
  </section>`;
@@ -478,7 +494,7 @@ function showStockModal(product=null,kind='purchase'){
   }
   const mode=shopMode();
   if(!mode){nav('settings');$('#inventory-mode-form')?.scrollIntoView({block:'center'});return;}
-  const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product,state.data.settings)}${!product?`<div class="field-grid">${categoryFields(shopCategories()[0],null,true)}</div>`:''}</form>`;
+  const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product,state.data.settings)}${!product&&!(mode==='detailed'&&customTyreFields(state.data.settings))?`<div class="field-grid">${categoryFields(shopCategories()[0],null,true)}</div>`:''}</form>`;
   modal(product?'Restock tyres':'Add purchased tyres','',body,modalButtons('purchase-form','Save purchase'),false,'purchase-dialog');
   if(!product)updatePurchaseFields($('#purchase-form'),mode,activeTyres(),'',state.data.settings);
   return;
@@ -556,11 +572,25 @@ async function doAction(action,target){switch(action){
    return;
  }
  case 'setup-remove-service':target.closest('.setup-service')?.remove();return;
+ case 'setup-add-tyre-field':{
+   const rows=$('[data-setup-tyre-rows]');
+   if(!rows||rows.children.length>=12)return;
+   const row=document.createElement('div');
+   row.className='field field-spread setup-tyre-field';
+   row.dataset.setupTyreField='';
+   row.dataset.fieldId=uid();
+   row.innerHTML=`<label>Field name<input name="tyreField" maxlength="60" required placeholder="e.g. Color, Code, Ply Rating"></label>
+      <button type="button" class="button small" data-action="setup-remove-tyre-field">Remove field</button>`;
+   rows.append(row);row.querySelector('input').focus();return;
+ }
+ case 'setup-remove-tyre-field':target.closest('[data-setup-tyre-field]')?.remove();return;
  
  case 'inventory-mode-settings':await nav('settings');$('#inventory-mode-form')?.scrollIntoView({block:'center'});return;
  case 'check-updates':await checkUpdates();return;
  case 'install-update':await installAppUpdate();return;
- case 'edit-category':showCategoryModal(shopCategories().find(c=>c.id===target.dataset.category));return;
+ case 'edit-category':
+   if(target.dataset.category==='tyres'){toast('Tyre identifiers are fixed after business setup.');return;}
+   showCategoryModal(shopCategories().find(c=>c.id===target.dataset.category));return;
  case 'add-category-field':{
    const host=$('[data-category-fields]');
    if(host.children.length<12)host.insertAdjacentHTML('beforeend',`<div class="field field-spread"><label>Field name<input name="field" maxlength="60" placeholder="e.g. Ply Rating"></label>${$('#category-form')?.dataset.id==='tyres'?`<label class="consent"><input type="checkbox" name="stockKeyIndex" value="${host.children.length}" ${$('#category-form')?.dataset.locked==='yes'?'disabled':''}> Separate tyre variants by this field</label>`:''}</div>`);
@@ -570,7 +600,7 @@ async function doAction(action,target){switch(action){
  case 'edit-stock-product':showCustomProductModal(shopCategories().find(c=>c.id===target.dataset.category),customProducts().find(p=>p.id===target.dataset.product));return;
  case 'buy-tyres':showStockModal(null,'purchase');return;
  case 'export-inventory':{
-   const mode=shopMode(),details=mode!=='simple',fields=tyreFields(state.data.settings);
+   const mode=shopMode(),details=mode!=='simple'&&!customTyreFields(state.data.settings),fields=tyreFields(state.data.settings);
    const rows=activeTyres().map(p=>[p.brand||p.name,...(details?[p.model,p.size]:[]),
      ...fields.map(field=>p.attributes?.[field.id]||''),p.stockQty||0,fromPaise(p.costPaise),fromPaise(p.pricePaise)]);
    saveBlob(toCSV(['Brand',...(details?['Model','Size']:[]),...fields.map(f=>f.label),'Current stock','Cost INR','Price INR'],rows),`TyreDesk-inventory-${todayISO()}.csv`,'text/csv;charset=utf-8');return;
@@ -670,7 +700,17 @@ async function runForm(form){const f=new FormData(form);const v=k=>String(f.get(
  }
  if(form.id==='setup-form'){if(accountStep!=='setup')throw Error('Sign in to set up your shop.');const legalConsent=consentRecord(f.get('legalConsent')==='on');const pin=v('pin');if(!/^\d{4,12}$/.test(pin))throw Error(T('pinMin'));if(pin!==v('confirmPin'))throw Error('PINs do not match');const gst=v('gstRegistered')==='true',gstin=v('gstin').toUpperCase();if(gst&&gstin.length!==15)throw Error('A GST-registered shop needs a valid 15-character GSTIN');
  const inventoryMode=v('inventoryMode');if(!['simple','detailed'].includes(inventoryMode))throw Error('Choose an inventory mode.');
- const saltHex=salt(),pinHash=await hashPin(pin,saltHex);const s={id:'shop',inventoryMode,legalConsent,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:'',address:v('address'),city:v('city'),state:v('state'),gstin,invoicePrefix:v('invoicePrefix')||'INV',gstRegistered:gst,terms:'',language:v('language'),theme:'light',pinHash,pinSalt:saltHex,createdAt:now()};await finishFirstSetup(s,initialServices(f));await enterAccount();return;}
+ const chosen=inventoryMode==='detailed'
+   ?[...form.querySelectorAll('[data-setup-tyre-field]')].map(row=>({
+       id:row.dataset.fieldId,label:row.querySelector('input[name="tyreField"]').value.trim().replace(/\s+/g,' '),stockKey:true
+     })):[];
+ if(inventoryMode==='detailed'&&(!chosen.length||chosen.length>12||
+    chosen.some(item=>!item.label||item.label.length>60)||
+    new Set(chosen.map(item=>item.label.toLocaleLowerCase())).size!==chosen.length||
+    chosen.some(item=>item.label.toLowerCase()==='brand')))
+   throw Error('Choose 1–12 unique tyre details, different from Brand, before creating the shop.');
+ const inventoryCategories=inventoryMode==='detailed'?[{id:'tyres',name:'Tyres',fields:chosen}]:[];
+ const saltHex=salt(),pinHash=await hashPin(pin,saltHex);const s={id:'shop',inventoryMode,tyreIdentitySchema:inventoryMode==='detailed'?'field-based-v1':undefined,inventoryCategories,legalConsent,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:'',address:v('address'),city:v('city'),state:v('state'),gstin,invoicePrefix:v('invoicePrefix')||'INV',gstRegistered:gst,terms:'',language:v('language'),theme:'light',pinHash,pinSalt:saltHex,createdAt:now()};await finishFirstSetup(s,initialServices(f));await enterAccount();return;}
  if(form.id==='unlock-form'){const s=state.data.settings;if(await hashPin(v('pin'),s.pinSalt)!==s.pinHash)throw Error(T('wrongPin'));sessionStorage.setItem('tyredesk-unlocked','yes');await refresh();state.locked=false;render();updateCloudPresence();return;}
  if(form.id==='settings-form'){const s=state.data.settings;const gst=v('gstRegistered')==='true',gstin=v('gstin').toUpperCase();if(gst&&gstin.length!==15)throw Error('GST-registered businesses must enter a 15-character GSTIN');await saveSetting({...s,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:v('whatsapp'),address:v('address'),city:v('city'),state:v('state'),invoicePrefix:v('invoicePrefix').replace(/\W/g,'').slice(0,12)||'INV',gstRegistered:gst,gstin,terms:v('terms'),paymentQrData:f.get('removeQr')?'':await encodePaymentQr(f.get('paymentQr'),s.paymentQrData||'')});await refresh();toast(T('saveChanges'));return;}
  if(form.id==='reminder-form'){const date=new Date(v('due'));if(!v('due')||!Number.isFinite(date.getTime()))throw Error(T('remindersInvalidDate'));await saveReminder({id:form.dataset.id||undefined,title:v('title'),notes:v('notes'),dueAt:date.toISOString()});await refresh();closeModal();toast(T('remindersSaved'));return;}
@@ -761,6 +801,12 @@ document.addEventListener('input',event=>{
  if(target.dataset.lineField&&state.bill){const node=target.closest('[data-line]');const line=state.bill.lines.find(l=>l.key===node?.dataset.line);if(!line)return;const prop=target.dataset.lineField;switch(prop){case'name':line.name=target.value;break;case'qty':line.qty=Number(target.value);break;case'taxBps':line.taxBps=Math.round(Number(target.value)*100);break;case'unitPaise':line.unitPaise=toPaise(target.value);break;case'discountValue':line.discount.value=line.discount.type==='percent'?Math.round(Number(target.value)*100):toPaise(target.value);break;default:break;}updateBillTotals();return;}
 });
 document.addEventListener('change',async event=>{const el=event.target;try{
+ if(el.name==='inventoryMode'&&el.closest('#setup-form')){
+   const section=$('[data-setup-tyre-fields]');
+   if(section)section.hidden=el.value!=='detailed';
+   section?.querySelectorAll('input[name="tyreField"]').forEach(input=>{input.disabled=section.hidden;});
+   return;
+ }
  if(el.dataset.purchaseChoice){
    const form=el.form,key=el.dataset.purchaseChoice,input=form.elements[key];
    const manual=el.value==='__new__';
