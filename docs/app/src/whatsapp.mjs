@@ -47,7 +47,7 @@ export function formatWhatsAppBill(order, lang = 'en') {
   msg.push('━━━━━━━━━━━━━━━━━━━━');
   for (const [i, item] of lines.entries()) {
     msg.push(`*${i + 1}. ${safeLine(item.name || 'Service / Tyre')}*`);
-    msg.push(`${t('qty',lang)}: ${item.qty}  ×  ${rupees(item.unitPaise,lang)}`);
+    msg.push(item.type==='service'?`Service charge: ${rupees(item.qty*item.unitPaise,lang)}`:`${t('qty',lang)}: ${item.qty}  ×  ${rupees(item.unitPaise,lang)}`);
     const discount = Number(item.itemDiscountPaise || 0) + Number(item.orderDiscountPaise || 0);
     if (discount > 0) msg.push(`${t('discount',lang)}: −${rupees(discount,lang)}`);
     msg.push(`${t('amount',lang)}: ${rupees(item.totalPaise,lang)}`);
