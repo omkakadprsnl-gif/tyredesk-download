@@ -414,7 +414,7 @@ function categoriesPanel(){
  return `<section class="setting-panel">
   <h2>Tyre identification</h2>
   <p><strong>Brand</strong>${fields.length?' · '+fields.map(E).join(' · '):''}</p>
-  <p>Identification fields are chosen during business setup and fixed to protect inventory and invoices.</p>
+  <p>New shops select tyre-identification fields once during setup. Existing shop records retain their previous classification rules.</p>\n  ${customTyreFields(state.data.settings)?'':`<button type="button" class="button" data-action="edit-category" data-category="tyres">Manage legacy tyre fields</button>`}
   ${others.length?`<p class="small-muted">Earlier custom product categories are preserved for compatibility:</p>
    <ul class="settings-services">${others.map(c=>`<li><span>${E(c.name)}</span><button type="button" class="button small" data-action="edit-category" data-category="${E(c.id)}">Edit</button></li>`).join('')}</ul>`:''}
  </section>`;
@@ -597,7 +597,7 @@ async function doAction(action,target){switch(action){
  case 'check-updates':await checkUpdates();return;
  case 'install-update':await installAppUpdate();return;
  case 'edit-category':
-   if(target.dataset.category==='tyres'){toast('Tyre identifiers are fixed after business setup.');return;}
+   if(target.dataset.category==='tyres'&&customTyreFields(state.data.settings)){toast('Tyre identifiers are fixed after business setup.');return;}
    showCategoryModal(shopCategories().find(c=>c.id===target.dataset.category));return;
  case 'add-category-field':{
    const host=$('[data-category-fields]');
