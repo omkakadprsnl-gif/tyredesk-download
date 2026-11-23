@@ -1,6 +1,7 @@
 import {inventoryCategories,productCategory,isStockProduct,isVariantTyre,tyreSearchText,tyreFields,stockKeyFields} from './tyres.mjs';
 import {initUpdates,checkUpdates,installAppUpdate,updateStatus} from './updates.mjs';
 import {inventoryMode,tyreName,customTyreFields,defaultTyreFields} from './tyres.mjs';
+import {mondayBackupDue} from './backup-reminder.mjs';
 import {modeChoices,purchaseFields,updatePurchaseFields,tyrePicker,updateTyrePicker} from './tyre-ui.mjs';
 import {loginCloud,firstRunStep,restoreAccount,finishFirstSetup,logoutCloud,cloudStatus,syncCloud,startCloud,restoreOffline,updateCloudPresence} from './cloud.mjs';
 import {getDatabase,saveReceivedDraft,receivedDraft, getSetting,saveSetting,saveReminder,completeReminder,summaryData,invoiceDetails,customerDetails,upsertCustomer,setVehicle,addCatalogItem,adjustStock,buyTyres,recordPurchase,saveInventoryCategory,setInventoryMode,completeOrder,editOrder,addPayment,recordRefund,cancelOrder,addExpense,exportBackup,packAndroidBackup,restoreBackup,searchCustomers,all,addAudit} from './db.mjs';
@@ -44,7 +45,9 @@ const driveDay=()=>todayISO();
 const driveReminderDismissKey='tyredesk-drive-reminder-dismissed';
 const localDriveDateKey='tyredesk-drive-provider-saved';
 const driveMarker=()=>nativeAndroid()?backupInfo.driveLastSaved:reminderStore.getItem(localDriveDateKey);
-const driveReminderDue=()=>!!state.data?.settings && !String(driveMarker()||'').startsWith(driveDay()) && reminderStore.getItem(driveReminderDismissKey)!==driveDay();
+const driveReminderDue=()=>mondayBackupDue({now:new Date(),dateKey:driveDay(),
+ lastSaved:driveMarker(),dismissedDate:reminderStore.getItem(driveReminderDismissKey),
+ shopReady:!!state.data?.settings});
 const backupFileName=()=>`TyreDesk-backup-${todayISO()}-${fileSafeName(state.data.settings.name)}.json`;
 let backupTimer=null,backupBusy=false;
 const nativeAndroid=()=>!!window.TyreDeskAndroid?.stageBackupSnapshot;
@@ -150,7 +153,12 @@ function homeTools(){
  return `<div class="dash-home-tools" aria-label="Reminders and backups">
    <button type="button" class="button" data-action="add-reminder">${I('bell')}${T('remindersAdd')}</button>
    <button type="button" class="button" data-action="backup-options">${I('download')}Backup${backupDue?'<span class="backup-attention-dot" aria-label="Backup needs attention"></span>':''}</button>
- </div>${next?`<p class="home-reminder-summary ${due.length?'is-due':''}">${I('bell')}<span><strong>${due.length?`${due.length} ${T('remindersDue')}`:T('remindersUpcoming')}</strong> · ${E(next.title)}</span></p>`:''}`;
+ </div>${driveReminderDue()?`<div class="weekly-drive-reminder" role="status">
+   <div><strong>Monday Google Drive backup reminder</strong>
+     <p>Keep a recovery copy outside this device. Save today's TyreDesk backup to your Google Drive.</p></div>
+   <button type="button" class="button primary" data-action="backup-drive">Back up to Google Drive</button>
+   <button type="button" class="button" data-action="backup-options">Backup options</button>
+ </div>`:''}${next?`<p class="home-reminder-summary ${due.length?'is-due':''}">${I('bell')}<span><strong>${due.length?`${due.length} ${T('remindersDue')}`:T('remindersUpcoming')}</strong> · ${E(next.title)}</span></p>`:''}`;
 }
 
 function reminders(){
@@ -391,11 +399,12 @@ function showBackupOptions(){
  const due=driveReminderDue();
  modal('Backup','',`<div class="setting-actions">
     <p class="small-muted" data-backup-status>${E(backupStatusLine())}</p>
-    ${due?'<p class="small-muted">A Google Drive backup is due today.</p>':''}
+    ${due?'<p class="small-muted">Monday reminder: save your weekly recovery copy to Google Drive.</p>':''}
     <button type="button" class="button primary" data-action="backup-drive">${I('upload')}Back up to Google Drive</button>
     <button type="button" class="button" data-action="backup">${I('download')}Download backup</button>
     <button type="button" class="button" data-action="backup-settings">${I('settings')}Backup settings</button>
- </div>`,due?'<button type="button" class="button" data-action="dismiss-drive-reminder">Remind me tomorrow</button>':'');
+ </div>`,due?`<button type="button" class="button" data-action="confirm-drive-backup">I saved a Google Drive backup</button>
+    <button type="button" class="button" data-action="dismiss-drive-reminder">Dismiss for this Monday</button>`:'');
 }
 function modalButtons(submitId,label=T('save')){return `<button class="button" data-action="close-modal">${T('cancel')}</button><button type="submit" class="button primary" form="${submitId}">${I('check')}${label}</button>`;}
 function showCustomerModal(c=null){const vehicles=c?state.data.vehicles.filter(v=>v.customerId===c.id):[];const orders=c?activeOrders().filter(o=>o.customerId===c.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)):[];const spend=orders.reduce((n,o)=>n+o.totals.grandPaise,0),due=orders.reduce((n,o)=>n+o.duePaise,0);
@@ -622,6 +631,9 @@ async function doAction(action,target){switch(action){
  case 'backup-drive':await backupToDrive();return;
  case 'restore-drive':await restoreFromDrive();return;
  case 'dismiss-drive-reminder':reminderStore.setItem(driveReminderDismissKey,driveDay());closeModal();render();return;
+ case 'confirm-drive-backup':
+   if(!window.confirm('Confirm the backup was saved successfully to your Google Drive account?'))return;
+   reminderStore.setItem(localDriveDateKey,driveDay());closeModal();render();toast('Weekly Google Drive backup marked complete.');return;
  case 'restore':{const input=$('#restore-file');if(input){input.click();}else{await nav('settings');$('#restore-file')?.click();}return;}
  case 'install':if(nativeAndroid())return;if(state.installPrompt){state.installPrompt.prompt();state.installPrompt=null;}else installationInfo();return;
  case 'change-pin':changePinModal();return;
