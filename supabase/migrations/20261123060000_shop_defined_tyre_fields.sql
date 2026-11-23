@@ -57,6 +57,14 @@ begin
       end if;
     end if;
     if tg_op = 'UPDATE' then
+      if old.doc->>'inventoryMode' is not null
+         and old.doc->>'inventoryMode' is distinct from selected_mode then
+        raise exception 'Inventory mode is fixed after shop setup';
+      end if;
+      if old.doc->>'inventoryModeLocked'='true'
+         and new.doc->>'inventoryModeLocked' is distinct from 'true' then
+        raise exception 'Inventory mode lock cannot be removed';
+      end if;
       if (old.doc->>'tyreIdentitySchema'='field-based-v1'
             and (old.doc->'inventoryCategories' is distinct from new.doc->'inventoryCategories'
               or old.doc->>'inventoryMode' is distinct from selected_mode))
