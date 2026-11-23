@@ -878,8 +878,11 @@ document.addEventListener('touchend',event=>{
 // Keep every mobile dialog inside Android's *visible* viewport when the
 // keyboard opens. Never scroll the document behind a dialog to focus an input.
 if(window.visualViewport){
- let fullHeight=window.visualViewport.height;
  const viewport=window.visualViewport;
+ // Some Android WebViews report a stale visualViewport while the window's
+ // actual layout height changes. Track both dimensions and always use the
+ // smaller valid space; Android adjustResize is enabled in the APK manifest.
+ let fullHeight=Math.max(window.innerHeight||0,viewport.height||0);
  const scrollFocusedInput=()=>{
   const target=document.activeElement;
   if(!target?.matches?.('input,textarea,select')||!target.isConnected)return;
@@ -892,19 +895,22 @@ if(window.visualViewport){
  };
  const viewportChanged=()=>{
   const focused=document.activeElement;
-  const typing=focused?.matches?.('input:not([type="checkbox"]):not([type="radio"]),textarea,select');
-  if(!typing)fullHeight=Math.max(fullHeight,viewport.height);
-  const keyboardOpen=!!typing&&fullHeight-viewport.height>130;
+  const typing=!!focused?.matches?.('input:not([type="checkbox"]):not([type="radio"]),textarea,select');
+  const layoutHeight=Math.max(1,Math.min(window.innerHeight||viewport.height,
+    document.documentElement.clientHeight||window.innerHeight||viewport.height));
+  const visibleHeight=Math.max(1,Math.min(layoutHeight,viewport.height||layoutHeight));
+  if(!typing)fullHeight=Math.max(fullHeight,layoutHeight,viewport.height||0);
+  const keyboardOpen=typing&&fullHeight-visibleHeight>130;
   document.documentElement.classList.toggle('keyboard-open',keyboardOpen);
-  document.documentElement.style.setProperty('--visible-screen-height',Math.round(viewport.height)+'px');
-  document.documentElement.style.setProperty('--visible-screen-top',Math.round(viewport.offsetTop)+'px');
-  if(typing&&focused?.closest('.modal-body'))requestAnimationFrame(scrollFocusedInput);
+  document.documentElement.style.setProperty('--visible-screen-height',Math.round(visibleHeight)+'px');
+  document.documentElement.style.setProperty('--visible-screen-top',Math.round(Math.max(0,viewport.offsetTop||0))+'px');
+  if(typing&&focused.closest('.modal-body'))requestAnimationFrame(scrollFocusedInput);
  };
  viewport.addEventListener('resize',viewportChanged);
  viewport.addEventListener('scroll',viewportChanged);
+ window.addEventListener('resize',viewportChanged);
  document.addEventListener('focusin',event=>{
   if(!event.target.matches('input,textarea,select'))return;
-  fullHeight=Math.max(fullHeight,viewport.height);
   requestAnimationFrame(()=>{viewportChanged();scrollFocusedInput();});
   setTimeout(()=>{viewportChanged();scrollFocusedInput();},240);
  });
