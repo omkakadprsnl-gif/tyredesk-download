@@ -60,4 +60,6 @@ jobs:
         run: node tests/tyre-classification.browser.test.mjs
       - name: Verify mobile keyboard-safe dialogs and configurable tyre purchasing
         run: node tests/shop-fields.browser.test.mjs
+      - name: Verify Android keyboard-visible modal body never collapses
+        run: node tests/dialog-viewport.test.mjs
 
