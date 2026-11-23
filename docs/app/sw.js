@@ -1,5 +1,5 @@
 // App shell cache only. User data lives in IndexedDB and is never touched here.
-const CACHE='tyredesk-pwa-web-v1.3.13';
+const CACHE='tyredesk-pwa-web-v1.3.14';
 const APP=['./src/backup-reminder.mjs','./src/tyres.mjs','./src/tyre-ui.mjs','./src/stock-edit.mjs','./src/invoice-storage.mjs','./src/updates.mjs','./src/cloud.mjs','./src/cloud-store.mjs','./src/cloud-merge.mjs','./vendor/auth.mjs','./terms.html','./privacy.html','./src/legal.mjs','./src/legal-back.mjs','./','./index.html','./styles.css','./manifest.webmanifest','./src/main.mjs','./src/pwa-backup.mjs','./src/db.mjs','./src/logic.mjs','./src/i18n.mjs','./src/invoice.mjs','./src/whatsapp.mjs','./assets/icon-192.png','./assets/icon-512.png'];
 self.addEventListener('install', event => {
   // Bypass the browser's HTTP cache when installing a new app shell.
