@@ -1,3 +1,11 @@
+# TyreDesk 1.3.15 — Android keyboard test update
+
+Following a report that v1.3.14 still obscured fields on Samsung devices, the affected purchase, reminder, and expense forms now use invoice-style document scrolling instead of nested fixed overlays on Android. The invoice editor is unchanged.
+
+This release passes the signed APK build, matching-certificate check, and full browser regression suite, including three narrow-screen form-scroll tests. The Android emulator smoke run was inconclusive because its ADB device went offline; **the actual Samsung keyboard fix remains unconfirmed**. Please test these three forms before distributing commercially.
+
+Install the signed APK over the current TyreDesk app without uninstalling or clearing data. Keep a backup copy of shop records.
+
 # TyreDesk 1.3.14 — Keyboard-safe tyre purchase, reminder and expense dialogs
 
 Fixes the Android keyboard issue visible in the 1.3.13 release: the input form was squeezed into a small strip near the header while Save/Cancel buttons appeared too high and a large blank area remained beneath them.
