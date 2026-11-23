@@ -294,11 +294,11 @@ function lineMarkup(line){
  const percent=line.discount.type==='percent';
  return `<details class="compact-bill-line" data-line="${E(line.key)}" ${line.expanded?'open':''}>
   <summary><span><strong data-line-name>${E(line.name||'New service')}</strong>
-  <span data-line-caption>${line.qty} × ${M(line.unitPaise)}</span></span><strong id="line-amount-${E(line.key)}">—</strong></summary>
+  <span data-line-caption>${line.type==='service'?'Service charge: '+M(line.qty*line.unitPaise):line.qty+' × '+M(line.unitPaise)}</span></span><strong id="line-amount-${E(line.key)}">—</strong></summary>
   <div class="line-editor">
    ${line.catalogId&&isStockProduct(line)?'':`<label class="field field-spread">Description<input data-line-field="name" value="${E(line.name)}"></label>`}
-   <label class="field">Quantity<input type="number" min="1" max="9999" data-line-field="qty" value="${line.qty}"></label>
-   <label class="field">Price per item (₹)<input type="number" min="0" step="0.01" data-line-field="unitPaise" value="${amountField(line.unitPaise)}"></label>
+   ${line.type==='service'?'':`<label class="field">Quantity<input type="number" min="1" max="9999" data-line-field="qty" value="${line.qty}"></label>`}
+   <label class="field">${line.type==='service'?'Service price (₹)':'Price per item (₹)'}<input type="number" min="0" step="0.01" data-line-field="unitPaise" value="${amountField(line.unitPaise)}"></label>
    <div class="field"><label for="line-discount-${E(line.key)}">Discount</label><div class="discount-inline">
     <input id="line-discount-${E(line.key)}" type="number" min="0" step="0.01" data-line-field="discountValue" value="${percent?line.discount.value/100:amountField(line.discount.value)}">
     <select data-line-field="discountType" aria-label="Discount type"><option value="fixed" ${percent?'':'selected'}>₹</option><option value="percent" ${percent?'selected':''}>%</option></select>
@@ -318,7 +318,8 @@ document.addEventListener('toggle',event=>{
 },true);
 function updateBillTotals(){const host=$('#bill-summary-dynamic');if(!host||!state.bill)return;for(const line of state.bill.lines){
  const row=host.ownerDocument.querySelector(`[data-line="${E(line.key)}"]`);
- if(row){row.querySelector('[data-line-name]').textContent=line.name||'New service';row.querySelector('[data-line-caption]').textContent=`${line.qty} × ${M(line.unitPaise)}`;}
+ if(row){row.querySelector('[data-line-name]').textContent=line.name||'New service';row.querySelector('[data-line-caption]').textContent=line.type==='service'
+   ?'Service charge: '+M(line.qty*line.unitPaise):`${line.qty} × ${M(line.unitPaise)}`;}
  }
  if(state.bill.editing){
    const amount=$('#bill-paid');
@@ -818,7 +819,7 @@ document.addEventListener('input',event=>{
  if(target.id==='customer-lookup'){state.bill.customerQuery=target.value;state.bill.selectedCustomerId=null;const q=target.value.trim();if(/^\+?[\d\s-]+$/.test(q)){state.bill.customerPhone=q;const phone=$('#bill-customer-phone');if(phone)phone.value=q;}else if(q){state.bill.customerName=q;const n=$('#bill-customer-name');if(n)n.value=q;}loadCustomerSuggestions(target.value).catch(errorMessage);return;}
  const billFields={'bill-customer-name':'customerName','bill-customer-phone':'customerPhone','bill-vehicle':'vehicle','bill-discount-value':'billDiscountValue','bill-paid':'paid','bill-reference':'paymentReference','bill-notes':'notes'};
  if(billFields[target.id]&&state.bill){state.bill[billFields[target.id]]=target.value;updateBillTotals();return;}
- if(target.dataset.lineField&&state.bill){const node=target.closest('[data-line]');const line=state.bill.lines.find(l=>l.key===node?.dataset.line);if(!line)return;const prop=target.dataset.lineField;switch(prop){case'name':line.name=target.value;break;case'qty':line.qty=Number(target.value);break;case'taxBps':line.taxBps=Math.round(Number(target.value)*100);break;case'unitPaise':line.unitPaise=toPaise(target.value);break;case'discountValue':line.discount.value=line.discount.type==='percent'?Math.round(Number(target.value)*100):toPaise(target.value);break;default:break;}updateBillTotals();return;}
+ if(target.dataset.lineField&&state.bill){const node=target.closest('[data-line]');const line=state.bill.lines.find(l=>l.key===node?.dataset.line);if(!line)return;const prop=target.dataset.lineField;switch(prop){case'name':line.name=target.value;break;case'qty':if(line.type!=='service')line.qty=Number(target.value);break;case'taxBps':line.taxBps=Math.round(Number(target.value)*100);break;case'unitPaise':line.unitPaise=toPaise(target.value);break;case'discountValue':line.discount.value=line.discount.type==='percent'?Math.round(Number(target.value)*100):toPaise(target.value);break;default:break;}updateBillTotals();return;}
 });
 document.addEventListener('change',async event=>{const el=event.target;try{
  if(el.name==='inventoryMode'&&el.closest('#setup-form')){
