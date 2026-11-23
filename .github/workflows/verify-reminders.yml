@@ -46,6 +46,8 @@ jobs:
         run: node tests/tyre-classification-db.test.mjs
       - name: Install browser
         run: npx playwright install --with-deps chromium
+      - name: Verify mobile keyboard-safe dialogs and configurable tyre purchasing
+        run: node tests/shop-fields.browser.test.mjs
       - name: Check mobile billing and offline inventory
         run: npm run test:browser
       - name: Check desktop invoice actions and offline flows
@@ -58,6 +60,4 @@ jobs:
         run: node tests/mobile-inventory.test.mjs
       - name: Test custom tyre classification and billing on narrow screens
         run: node tests/tyre-classification.browser.test.mjs
-      - name: Verify mobile keyboard-safe dialogs and configurable tyre purchasing
-        run: node tests/shop-fields.browser.test.mjs
 
