@@ -1,6 +1,12 @@
 -- TyreDesk: shop-defined permanent tyre identifiers in Detailed mode.
 -- Brand remains required; all other stock-key names are chosen at first setup.
 -- Legacy detailed [brand, model, size] and variant identities remain supported.
+-- Temporarily assume the existing least-privilege function owner, as in the
+-- previous classification migration; restore original grants afterward.
+grant tyredesk_rpc to postgres;
+grant create on schema tyredesk to tyredesk_rpc;
+set role tyredesk_rpc;
+
 CREATE OR REPLACE FUNCTION tyredesk.guard_inventory_identity()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -170,3 +176,7 @@ begin
   return new;
 end
 $function$
+reset role;
+revoke create on schema tyredesk from tyredesk_rpc;
+revoke tyredesk_rpc from postgres;
+notify pgrst, 'reload schema';
