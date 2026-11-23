@@ -1,3 +1,11 @@
+# TyreDesk 1.3.14 — Keyboard-safe tyre purchase, reminder and expense dialogs
+
+Fixes the Android keyboard issue visible in the 1.3.13 release: the input form was squeezed into a small strip near the header while Save/Cancel buttons appeared too high and a large blank area remained beneath them.
+
+Phone-sized dialogs now use a three-row grid with a dedicated scrollable form and footer. On keyboard resize, the form occupies the available space and the footer remains anchored inside the visible dialog. Regression tests cover narrow Android viewport sizes, tyre purchase fields and reminder-style dialogs.
+
+Install the same-signed APK **over** TyreDesk 1.3.13. Never uninstall or clear the application storage to upgrade. The app will still show Update Available and open the official download page. Actual Samsung keyboard behavior should be confirmed on the affected phone before closing the issue.
+
 # TyreDesk 1.3.13 — Mobile keyboard and Android update access
 
 Android form dialogs now use a shared keyboard-aware layout intended to keep fields and Save/Cancel actions accessible while typing. The Home screen provides a manual **Check for updates** action, and Settings → Update App always displays **Open Download Page**. TyreDesk also checks for new versions automatically and displays an **Update Available** banner when an update is detected.
