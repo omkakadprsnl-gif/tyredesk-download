@@ -1,5 +1,5 @@
 import {escapeHTML as E, fromPaise} from './logic.mjs';
-import {tyreKey, tyreName, tyreIdentity, stockKeyFields, isVariantTyre} from './tyres.mjs';
+import {tyreKey, tyreName, tyreIdentity, stockKeyFields, isVariantTyre, customTyreFields} from './tyres.mjs';
 
 const label = key => ({brand:'Brand',model:'Model',size:'Size'})[key];
 const dimensions = mode => mode === 'simple' ? ['brand'] : ['brand','model','size'];
@@ -10,7 +10,7 @@ const formatted = value => fromPaise(value||0);
 export function modeChoices(current='', locked=false) {
   const modes=[
     {key:'simple',name:'Simple Inventory',description:'Track tyres by brand. Record purchases by brand and quantity. On a bill, choose the brand and enter the quantity and price.',example:'MRF — 20 tyres'},
-    {key:'detailed',name:'Detailed Inventory',description:'Track each brand, model and size separately. Choose all three when you buy or sell tyres so the right stock is updated.',example:'MRF → ZLX → 145/80 R12 — 10 tyres'}
+    {key:'detailed',name:'Detailed Inventory',description:'Choose which details identify the tyres you sell. Model and Size are optional defaults; configure the fields during shop setup.',example:'MRF → Color → Product Code — 10 tyres'}
   ];
   return `<fieldset class="mode-choices" ${locked?'disabled':''}><legend>Choose your inventory mode</legend>${modes.map(m=>`
     <label class="mode-choice"><input type="radio" name="inventoryMode" value="${m.key}" ${current===m.key?'checked':''} required>
@@ -19,7 +19,10 @@ export function modeChoices(current='', locked=false) {
 }
 
 export function purchaseFields(mode, product, settings) {
-  const fields=dimensions(mode).map(key=>`<div class="field purchase-identity" data-purchase-dimension="${key}">
+  const fields=mode==='detailed'&&customTyreFields(settings)
+    ? `<label class="field">Brand<input name="brand" required maxlength="90" placeholder="Enter brand" autocomplete="off"></label>`
+      +stockKeyFields(settings).map(field=>`<label class="field">${E(field.label)}<input name="attribute-${E(field.id)}" maxlength="160" required placeholder="Enter ${E(field.label)}" autocomplete="off"></label>`).join('')
+    :dimensions(mode).map(key=>`<div class="field purchase-identity" data-purchase-dimension="${key}">
     <label for="buy-${key}">${label(key)}</label>
     <select id="buy-${key}" data-purchase-choice="${key}" aria-label="${label(key)}"></select>
     <input name="${key}" maxlength="90" aria-label="New ${key}" placeholder="Enter ${key}" autocomplete="off">
@@ -36,6 +39,23 @@ export function purchaseFields(mode, product, settings) {
 }
 
 export function updatePurchaseFields(form, mode, tyres, changed='', settings=null) {
+  if(mode==='detailed'&&customTyreFields(settings)){
+    const brand=form.elements.namedItem('brand')?.value||'';
+    const attributes=Object.fromEntries(stockKeyFields(settings).map(field=>[
+      field.id,form.elements.namedItem('attribute-'+field.id)?.value||''
+    ]));
+    const identity=tyreIdentity(mode,{brand,attributes},settings);
+    const match=identity&&tyres.find(p=>p.tyreIdentity===identity);
+    const status=form.querySelector('[data-purchase-match]');
+    if(status)status.textContent=!identity?'Enter Brand and the shop-selected tyre details.':
+      match?`Current stock is ${match.stockQty||0}. This purchase adds to that exact tyre variant.`:
+      'New tyre variant. A separate stock record will be created.';
+    if(match)for(const [key,value] of [['cost',match.costPaise],['price',match.pricePaise]]){
+      const input=form.elements.namedItem(key);
+      if(input&&!input.dataset.edited)input.value=formatted(value);
+    }
+    return;
+  }
   const entries={};
   for(const key of dimensions(mode)){
     const input=form.elements.namedItem(key);
@@ -81,6 +101,18 @@ export function updatePurchaseFields(form, mode, tyres, changed='', settings=nul
 }
 
 export function tyrePicker(mode, tyres, settings) {
+  if(mode==='detailed'&&customTyreFields(settings)){
+    const fields=stockKeyFields(settings);
+    return `<form id="tyre-bill-form" class="field-grid tyre-fields">
+      <label class="field">Brand<select name="brand" required><option value="">Choose brand</option></select></label>
+      ${fields.map(f=>`<label class="field">${E(f.label)}<select name="stock-field-${E(f.id)}" data-stock-field="${E(f.id)}" required><option value="">Choose ${E(f.label)}</option></select></label>`).join('')}
+      <label class="field" data-exact-tyre hidden>Exact tyre variant<select name="exact"></select></label>
+      <label class="field">Quantity<input name="qty" type="number" min="1" step="1" value="1" required></label>
+      <label class="field">Price per tyre (₹)<input name="price" type="number" min="0" step="0.01" required></label>
+      <p data-bill-stock class="small-muted field-spread" aria-live="polite"></p>
+      <button type="submit" class="button field-spread">Add tyre to bill</button>
+    </form>`;
+  }
   const fields=stockKeyFields(settings);
   const hasLegacy=tyres.some(p=>!tyreIdentity(mode,p)||
     (fields.length&&!isVariantTyre(p)));
@@ -98,6 +130,48 @@ export function tyrePicker(mode, tyres, settings) {
 }
 
 export function updateTyrePicker(form, mode, catalog, changed='', settings=null) {
+  if(mode==='detailed'&&customTyreFields(settings)){
+    let matching=catalog.filter(p=>p.inventoryMode==='detailed'&&
+      p.tyreIdentity?.startsWith('["')&&
+      (()=>{try{return JSON.parse(p.tyreIdentity)[1]==='custom';}catch{return false;}})());
+    const brand=form.elements.namedItem('brand');
+    const previousBrand=changed==='brand'?'':brand.value;
+    const available=options(matching.map(p=>p.brand));
+    brand.replaceChildren(new Option('Choose brand',''),...available.map(v=>new Option(v,v)));
+    brand.value=available.some(v=>tyreKey(v)===tyreKey(previousBrand))?previousBrand:'';
+    matching=brand.value?matching.filter(p=>tyreKey(p.brand)===tyreKey(brand.value)):[];
+    let clear=changed==='brand';
+    for(const field of stockKeyFields(settings)){
+      const select=form.elements.namedItem('stock-field-'+field.id);
+      const prior=clear?'':select.value;
+      const values=options(matching.map(p=>p.attributes?.[field.id]));
+      select.replaceChildren(new Option('Choose '+field.label,''),...values.map(v=>new Option(v,v)));
+      select.value=values.some(v=>tyreKey(v)===tyreKey(prior))?prior:'';
+      select.disabled=!brand.value||!values.length;
+      matching=select.value?matching.filter(p=>tyreKey(p.attributes?.[field.id])===tyreKey(select.value)):[];
+      clear ||=changed==='stock-field-'+field.id;
+    }
+    const exact=form.elements.exact;
+    const prev=changed==='exact'?exact.value:'';
+    exact.replaceChildren();
+    if(matching.length>1)exact.add(new Option('Choose exact tyre variant',''));
+    for(const p of matching)exact.add(new Option(tyreName(p,mode,settings)+' · '+(p.stockQty||0)+' in stock',p.id));
+    if(matching.length===1)exact.value=matching[0].id;
+    else exact.value=prev&&matching.some(p=>p.id===prev)?prev:'';
+    exact.parentElement.hidden=matching.length<2;
+    exact.disabled=matching.length<2;
+    exact.required=matching.length>1;
+    const selected=matching.find(p=>p.id===exact.value);
+    form.dataset.product=selected?.id||'';
+    form.querySelector('[data-bill-stock]').textContent=selected?
+      `${selected.stockQty||0} tyres in stock`:
+      matching.length>1?'Choose the exact tyre to avoid deducting the wrong stock.':
+      'Choose a tyre to see stock and price.';
+    form.elements.price.value=selected?formatted(selected.pricePaise):'';
+    form.elements.qty.max=selected?.stockQty||'';
+    form.querySelector('button').disabled=!(selected?.stockQty>0);
+    return;
+  }
   const fields=stockKeyFields(settings);
   let matching=catalog.filter(p=>tyreIdentity(mode,p));
   let clear=false;
