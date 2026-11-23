@@ -1,3 +1,9 @@
+# TyreDesk 1.3.13 — Mobile keyboard and Android update access
+
+Android form dialogs now use a shared keyboard-aware layout intended to keep fields and Save/Cancel actions accessible while typing. The Home screen provides a manual **Check for updates** action, and Settings → Update App always displays **Open Download Page**. TyreDesk also checks for new versions automatically and displays an **Update Available** banner when an update is detected.
+
+Tap **Open Download Page** to download the digitally signed APK and install it over the existing TyreDesk app. Do not uninstall or clear storage. The upgrade was checked using an Android emulator; verify keyboard behavior on each real phone before commercial rollout.
+
 # TyreDesk 1.3.11 — One-time shop tyre setup and mobile forms
 
 During **first business setup**, choose Simple or Detailed inventory permanently. Detailed shops configure the tyre-identification fields they actually use: Brand stays required, while the owner can keep, rename, remove or add fields such as Color, Size, Product Code or Ply Rating **before creating the shop**. The chosen fields—not hardcoded Model and Size—are used for purchasing, restocking, inventory search, separate tyre-stock identities, billing and CSV exports. After setup, the configuration is fixed to protect stock and invoice history. Existing shops and old tyre identities retain their historical formats.
