@@ -37,7 +37,18 @@ try{
   '20261122204818_enforce_shop_payment_refs_and_device_retirement.sql',
   '20261123010000_tyre_custom_variant_identity.sql',
   '20261123060000_shop_defined_tyre_fields.sql'
- ])await db.exec(await read('supabase/migrations/'+migration));
+ ]){
+   const sql=await read('supabase/migrations/'+migration);
+   if(migration==='20261123060000_shop_defined_tyre_fields.sql'){
+     const tag='-- Trigger swap is transactional: failed migration leaves the old guard active.';
+     const parts=sql.split(tag);
+     assert.equal(parts.length,2);
+     // PGlite's prepared execution parser treats a quoted CREATE FUNCTION as
+     // one statement. Issue the function and subsequent DDL separately.
+     await db.exec(parts[0]);
+     await db.exec(parts[1]);
+   }else await db.exec(sql);
+ }
  await db.exec("select set_config('request.jwt.claim.sub','"+owner+"',false)");
  await write('settings','shop',shop);
  await write('catalog','red',tyre('red','Red','A1'));
