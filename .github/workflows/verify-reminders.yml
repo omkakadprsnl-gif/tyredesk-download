@@ -62,4 +62,6 @@ jobs:
         run: node tests/shop-fields.browser.test.mjs
       - name: Verify Android keyboard-visible modal body never collapses
         run: node tests/dialog-viewport.test.mjs
+      - name: Verify invoice-style native form scrolling for purchase, reminder and expenses
+        run: node tests/native-form-page.test.mjs
 
