@@ -135,7 +135,7 @@ export function updateTyrePicker(form, mode, catalog, changed='', settings=null)
       p.tyreIdentity?.startsWith('["')&&
       (()=>{try{return JSON.parse(p.tyreIdentity)[1]==='custom';}catch{return false;}})());
     const brand=form.elements.namedItem('brand');
-    const previousBrand=changed==='brand'?'':brand.value;
+    const previousBrand=brand.value;
     const available=options(matching.map(p=>p.brand));
     brand.replaceChildren(new Option('Choose brand',''),...available.map(v=>new Option(v,v)));
     brand.value=available.some(v=>tyreKey(v)===tyreKey(previousBrand))?previousBrand:'';
