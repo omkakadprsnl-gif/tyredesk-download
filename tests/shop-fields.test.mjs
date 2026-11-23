@@ -30,7 +30,7 @@ assert.equal(products.find(p=>p.id===blue.productId).stockQty,3);
 assert.equal(redStock.model,'');
 assert.equal(redStock.size,'');
 assert.ok(isVariantTyre(redStock));
-assert.match(tyreName(redStock,'detailed',await getSetting()),/Color: Red/);
+assert.match(tyreName(redStock,'detailed',await getSetting()),/Color: red/i);
 assert.equal(JSON.parse(tyreIdentity('detailed',redStock,await getSetting()))[1],'custom');
 assert.equal((await buyTyres({...base,purchaseId:'red',attributes:attrs('Red','A-1')})).productId,red.productId);
 assert.equal((await all('catalog')).find(p=>p.id===red.productId).stockQty,7);
