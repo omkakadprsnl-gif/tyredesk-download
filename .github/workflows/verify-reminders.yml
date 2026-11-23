@@ -34,6 +34,10 @@ jobs:
         run: npm test
       - name: Test shop-defined tyre stock keys and legacy history
         run: node tests/tyre-classification.test.mjs
+      - name: Test immutable shop-defined identifiers and Monday backup reminders
+        run: node tests/shop-fields.test.mjs
+      - name: Validate permanent identifier enforcement in PostgreSQL
+        run: node tests/shop-fields-db.test.mjs
       - name: Verify financial edge cases and database authorization
         run: npm run test:audit
       - name: Validate SQL migration for custom tyre variant identities
@@ -52,4 +56,6 @@ jobs:
         run: node tests/mobile-inventory.test.mjs
       - name: Test custom tyre classification and billing on narrow screens
         run: node tests/tyre-classification.browser.test.mjs
+      - name: Verify mobile keyboard-safe dialogs and configurable tyre purchasing
+        run: node tests/shop-fields.browser.test.mjs
 
