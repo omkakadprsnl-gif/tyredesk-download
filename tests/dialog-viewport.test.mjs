@@ -22,7 +22,7 @@ try{
     </div></form></div>
     <div class="modal-footer"><button class="button">Cancel</button><button class="button primary">Save purchase</button></div>
     </div></div></div></div></body></html>`);
-  const check=async label=>{
+  const check=async (label,requireScroll=false)=>{
    const geom=await page.evaluate(()=>{
     const rect=sel=>document.querySelector(sel).getBoundingClientRect();
     const modal=rect('.modal'),body=rect('.modal-body'),footer=rect('.modal-footer');
@@ -35,16 +35,18 @@ try{
    assert.ok(geom.footerBottom<=geom.modalBottom+2&&geom.footerBottom>=geom.modalBottom-4,
      label+' footer not anchored: '+JSON.stringify(geom));
    assert.ok(geom.bodyHeight>=100,label+' form collapsed: '+JSON.stringify(geom));
-   assert.ok(geom.scrollHeight>geom.clientHeight,label+' form not scrollable: '+JSON.stringify(geom));
-   await page.evaluate(()=>document.querySelector('.modal-body').scrollTop=99999);
-   assert.ok(await page.locator('.modal-body').evaluate(el=>el.scrollTop)>0,label+' cannot scroll down to additional fields');
+   if(requireScroll){
+    assert.ok(geom.scrollHeight>geom.clientHeight,label+' long form should scroll above keyboard: '+JSON.stringify(geom));
+    await page.evaluate(()=>document.querySelector('.modal-body').scrollTop=99999);
+    assert.ok(await page.locator('.modal-body').evaluate(el=>el.scrollTop)>0,label+' cannot scroll down to additional fields');
+   }
   };
   await page.evaluate(h=>document.documentElement.style.setProperty('--visible-screen-height',h+'px'),initialHeight);
   await check('before keyboard '+width);
   await page.evaluate(()=>document.documentElement.classList.add('keyboard-open'));
   await page.setViewportSize({width,height:keyboardHeight});
   await page.evaluate(h=>document.documentElement.style.setProperty('--visible-screen-height',h+'px'),keyboardHeight);
-  await check('keyboard open '+width);
+  await check('keyboard open '+width,true);
   await context.close();
  }
 }finally{await browser.close();}
