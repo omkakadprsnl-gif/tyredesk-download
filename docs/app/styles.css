@@ -582,3 +582,66 @@ body[data-theme='dark']{--bg:#161b19;--panel:#222a26;--surface:#2d3631;--ink:#e8
 .legal-dialog{box-sizing:border-box;width:min(calc(100% - 24px),860px);height:calc(100% - 24px);height:calc(100dvh - 24px);max-width:none;max-height:none;padding:0;border:0;border-radius:14px;background:#fafbf8;overflow:hidden}
 .legal-dialog::backdrop{background:rgb(23 29 27 / .66)}
 .legal-dialog iframe{display:block;width:100%;height:100%;border:0}
+
+/* Shared Android keyboard-safe modal layout for inventory, expenses, reminders and all input forms. */
+[data-setup-tyre-fields][hidden]{display:none!important}
+.setup-tyre-field{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px}
+.setup-tyre-field>label{min-width:0}
+.setup-tyre-field input{width:100%;min-width:0;box-sizing:border-box}
+.setup-tyre-field .button{white-space:normal}
+@media(max-width:720px){
+ html .overlay,html.keyboard-open .overlay,
+ html .overlay.purchase-dialog,html.keyboard-open .overlay.purchase-dialog{
+  position:fixed!important;inset:auto 0 auto 0!important;
+  top:var(--visible-screen-top,0px)!important;
+  width:100%!important;height:var(--visible-screen-height,100dvh)!important;
+  max-height:100dvh!important;min-height:0!important;
+  box-sizing:border-box!important;overflow:hidden!important;
+  padding:7px 9px!important;align-items:stretch!important;justify-content:center!important
+ }
+ html .overlay>.modal,html.keyboard-open .overlay>.modal,
+ html .overlay.purchase-dialog>.modal,html.keyboard-open .overlay.purchase-dialog>.modal{
+  display:flex!important;flex-direction:column!important;
+  width:100%!important;max-width:100%!important;
+  height:100%!important;min-height:0!important;max-height:100%!important;
+  box-sizing:border-box!important;border-radius:13px!important;overflow:hidden!important;
+  animation:none!important
+ }
+ .overlay .modal-head{flex:0 0 auto;min-width:0;padding:13px 15px}
+ .overlay .modal-body{
+  flex:1 1 0!important;min-width:0!important;min-height:0!important;
+  padding:15px!important;overflow-y:auto!important;overflow-x:hidden!important;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch
+ }
+ .overlay .modal-footer{
+  flex:0 0 auto!important;display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:10px!important;align-items:stretch!important;
+  max-height:35%!important;overflow-y:auto!important;
+  padding:11px 14px calc(11px + env(safe-area-inset-bottom,0px))!important;
+  background:var(--panel);box-sizing:border-box
+ }
+ .overlay .modal-footer>.button{width:100%!important;min-width:0!important;min-height:46px;justify-content:center}
+ .overlay .modal-body form,.overlay .modal-body .field-grid{min-width:0;max-width:100%}
+ .overlay .modal-body .field{min-width:0;box-sizing:border-box}
+ .overlay .modal-body .field input,.overlay .modal-body .field textarea,.overlay .modal-body .field select{
+  width:100%;max-width:100%;min-width:0;box-sizing:border-box
+ }
+ .purchase-dialog #purchase-form .field-grid,
+ .overlay #expense-form .field-grid,
+ .overlay #tyre-bill-form.field-grid{
+  grid-template-columns:minmax(0,1fr)!important;
+  gap:14px!important
+ }
+ .purchase-dialog #purchase-form .purchase-cost,
+ .purchase-dialog #purchase-form .purchase-price{
+  grid-column:1/-1!important
+ }
+ .purchase-dialog #purchase-form .purchase-identity{display:grid;grid-template-columns:minmax(0,1fr);gap:7px}
+ .purchase-dialog #purchase-form .purchase-identity select,
+ .purchase-dialog #purchase-form .purchase-identity input{width:100%;min-width:0;box-sizing:border-box}
+ .overlay #reminder-form .field{margin:0 0 14px}
+ .overlay #reminder-form input,.overlay #reminder-form textarea{width:100%;min-width:0;box-sizing:border-box}
+ .setup-tyre-field{grid-template-columns:minmax(0,1fr);gap:7px}
+ .setup-tyre-field .button{justify-self:start}
+}
