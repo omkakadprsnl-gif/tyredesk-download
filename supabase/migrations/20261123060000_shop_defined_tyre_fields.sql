@@ -172,7 +172,7 @@ begin
   end if;
   return new;
 end
-$function$
+$function$;
 -- Trigger swap is transactional: failed migration leaves the old guard active.
 drop trigger tyredesk_guard_inventory_identity on tyredesk.records;
 create constraint trigger tyredesk_guard_inventory_identity
