@@ -53,8 +53,10 @@ export function checkUpdates(){
 export async function installAppUpdate(){
   if(window.TyreDeskAndroid?.openUpdatePage){window.TyreDeskAndroid.openUpdatePage();return;}
   if(window.TyreDeskAndroid){
-    // Never attempt a website-only service-worker refresh inside an Android APK.
-    throw Error('Use the official TyreDesk download page to install a signed Android update.');
+    // Older Android bridges may lack openUpdatePage. Navigate to the official HTTPS
+    // release site rather than trying a web-only service-worker update in the APK.
+    window.location.assign('https://omkakadprsnl-gif.github.io/tyredesk-download/');
+    return;
   }
   const worker=await navigator.serviceWorker?.getRegistration();
   await worker?.update();
