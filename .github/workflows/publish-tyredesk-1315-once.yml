@@ -1,0 +1,88 @@
+name: Publish signed TyreDesk v1.3.15 keyboard test update
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-tyredesk-1315-once.yml']
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download checksum-verified, signed APK artifact
+        env:
+          RELEASE_ZIP_URL: 'https://sdmntprdenmarkeast.oaiusercontent.com/files/00000000-c904-8210-a4b5-c676a57e173f/raw?se=2026-11-23T09%3A58%3A13Z&sp=r&sv=2026-06-06&sr=b&scid=ce7678b8-9c46-5102-9bc8-43a84a57d4f4&skoid=9b41a688-1b44-4731-856e-b0efcf3660ed&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-23T03%3A51%3A02Z&ske=2026-11-24T03%3A51%3A02Z&sks=b&skv=2026-06-06&sig=obTTNqRO/2AlElPclTMnLyZqFQhcdAaDJ0JyIshCAkU%3D'
+          EXPECTED_ZIP_SHA256: '2dfbf00c8c0160568e18cb44606e1987db8dc30e8e1d8f7f407f59caf29c220b'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 180 "$RELEASE_ZIP_URL" -o /tmp/tyredesk-1.3.15.zip
+          printf '%s  /tmp/tyredesk-1.3.15.zip\n' "$EXPECTED_ZIP_SHA256" | sha256sum -c -
+          unzip -t /tmp/tyredesk-1.3.15.zip >/dev/null
+          unzip -p /tmp/tyredesk-1.3.15.zip TyreDesk.apk > docs/TyreDesk.apk
+          unzip -t docs/TyreDesk.apk >/dev/null
+          unzip -p /tmp/tyredesk-1.3.15.zip package-info.txt | grep -F "versionCode='29'"
+          unzip -p /tmp/tyredesk-1.3.15.zip package-info.txt | grep -F "versionName='1.3.15'"
+      - name: Verify new Android forms and publish release feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import json,hashlib
+          folder=Path('docs')
+          apk=folder/'TyreDesk.apk'
+          digest=hashlib.sha256(apk.read_bytes()).hexdigest()
+          assert digest=='c19ba6b097b4a8ae7411ef3e6120d676ab5eb50c344d1fd4c25c238f8ca29bb9'
+          with ZipFile(apk) as zipfile:
+              main=zipfile.read('assets/www/src/main.js').decode('utf-8')
+              styles=zipfile.read('assets/www/styles.css').decode('utf-8')
+              updater=zipfile.read('assets/www/src/updates.js').decode('utf-8')
+              assert 'tyredesk-native-form-page' in main
+              assert 'tyredesk-native-form-page' in styles
+              assert "WEB_VERSION='1.3.15'" in updater
+              assert 'Check if a newer TyreDesk version is ready' in main
+              assert 'Open Download Page' in main
+          release_file=folder/'release.json'
+          release=json.loads(release_file.read_text())
+          assert release['version']=='1.3.14' and release['androidVersionCode']==28
+          release.update({
+             'version':'1.3.15',
+             'webVersion':'1.3.15',
+             'androidVersionCode':29,
+             'apkSha256':digest,
+             'appCommit':'ef3d417b75e7c0de5b427f60c6ddb8fddceec8a0',
+             'webCommit':'ef3d417b75e7c0de5b427f60c6ddb8fddceec8a0',
+             'androidBuildCommit':'1e9823c74486c13af563274c1abe2bd643221e12',
+             'releaseDate':'2026-11-23',
+          })
+          release_file.write_text(json.dumps(release,indent=2)+'\n')
+          (folder/'TyreDesk.apk.sha256').write_text(digest+'  TyreDesk.apk\n')
+          index=folder/'index.html'
+          old=index.read_text()
+          assert old.count('Version 1.3.14')==1
+          index.write_text(old.replace('Version 1.3.14','Version 1.3.15'))
+          notes=folder/'RELEASE-NOTES.md'
+          notes.write_text('''# TyreDesk 1.3.15 — Android keyboard test update
+
+          Following a report that v1.3.14 still obscured fields on Samsung devices, the affected purchase, reminder, and expense forms now use invoice-style document scrolling instead of nested fixed overlays on Android. The invoice editor is unchanged.
+
+          This release passes the signed APK build, matching-certificate check, and full browser regression suite, including three narrow-screen form-scroll tests. The Android emulator smoke run was inconclusive because its ADB device went offline; **the actual Samsung keyboard fix remains unconfirmed**. Please test these three forms before distributing commercially.
+
+          Install the signed APK over the current TyreDesk app without uninstalling or clearing data. Keep a backup copy of shop records.
+
+          '''+notes.read_text())
+          print('Verified APK:',digest)
+          PY
+      - name: Commit signed update and release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/TyreDesk.apk docs/TyreDesk.apk.sha256 docs/release.json docs/index.html docs/RELEASE-NOTES.md
+          git diff --cached --quiet && exit 1
+          git commit -m "Publish TyreDesk v1.3.15 signed Android keyboard test update"
+          git push origin HEAD:main
