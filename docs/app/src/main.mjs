@@ -1,6 +1,7 @@
 import {inventoryCategories,productCategory,isStockProduct,isVariantTyre,tyreSearchText,tyreFields,stockKeyFields} from './tyres.mjs';
 import {initUpdates,checkUpdates,installAppUpdate,updateStatus} from './updates.mjs';
-import {inventoryMode,tyreName} from './tyres.mjs';
+import {inventoryMode,tyreName,customTyreFields,defaultTyreFields} from './tyres.mjs';
+import {mondayBackupDue} from './backup-reminder.mjs';
 import {modeChoices,purchaseFields,updatePurchaseFields,tyrePicker,updateTyrePicker} from './tyre-ui.mjs';
 import {loginCloud,firstRunStep,restoreAccount,finishFirstSetup,logoutCloud,cloudStatus,syncCloud,startCloud,restoreOffline,updateCloudPresence} from './cloud.mjs';
 import {getDatabase,saveReceivedDraft,receivedDraft, getSetting,saveSetting,saveReminder,completeReminder,summaryData,invoiceDetails,customerDetails,upsertCustomer,setVehicle,addCatalogItem,adjustStock,buyTyres,recordPurchase,saveInventoryCategory,setInventoryMode,completeOrder,editOrder,addPayment,recordRefund,cancelOrder,addExpense,exportBackup,packAndroidBackup,restoreBackup,searchCustomers,all,addAudit} from './db.mjs';
@@ -44,7 +45,9 @@ const driveDay=()=>todayISO();
 const driveReminderDismissKey='tyredesk-drive-reminder-dismissed';
 const localDriveDateKey='tyredesk-drive-provider-saved';
 const driveMarker=()=>nativeAndroid()?backupInfo.driveLastSaved:reminderStore.getItem(localDriveDateKey);
-const driveReminderDue=()=>!!state.data?.settings && !String(driveMarker()||'').startsWith(driveDay()) && reminderStore.getItem(driveReminderDismissKey)!==driveDay();
+const driveReminderDue=()=>mondayBackupDue({now:new Date(),dateKey:driveDay(),
+ lastSaved:driveMarker(),dismissedDate:reminderStore.getItem(driveReminderDismissKey),
+ shopReady:!!state.data?.settings});
 const backupFileName=()=>`TyreDesk-backup-${todayISO()}-${fileSafeName(state.data.settings.name)}.json`;
 let backupTimer=null,backupBusy=false;
 const nativeAndroid=()=>!!window.TyreDeskAndroid?.stageBackupSnapshot;
@@ -150,7 +153,12 @@ function homeTools(){
  return `<div class="dash-home-tools" aria-label="Reminders and backups">
    <button type="button" class="button" data-action="add-reminder">${I('bell')}${T('remindersAdd')}</button>
    <button type="button" class="button" data-action="backup-options">${I('download')}Backup${backupDue?'<span class="backup-attention-dot" aria-label="Backup needs attention"></span>':''}</button>
- </div>${next?`<p class="home-reminder-summary ${due.length?'is-due':''}">${I('bell')}<span><strong>${due.length?`${due.length} ${T('remindersDue')}`:T('remindersUpcoming')}</strong> · ${E(next.title)}</span></p>`:''}`;
+ </div>${driveReminderDue()?`<div class="weekly-drive-reminder" role="status">
+   <div><strong>Monday Google Drive backup reminder</strong>
+     <p>Keep a recovery copy outside this device. Save today's TyreDesk backup to your Google Drive.</p></div>
+   <button type="button" class="button primary" data-action="backup-drive">Back up to Google Drive</button>
+   <button type="button" class="button" data-action="backup-options">Backup options</button>
+ </div>`:''}${next?`<p class="home-reminder-summary ${due.length?'is-due':''}">${I('bell')}<span><strong>${due.length?`${due.length} ${T('remindersDue')}`:T('remindersUpcoming')}</strong> · ${E(next.title)}</span></p>`:''}`;
 }
 
 function reminders(){
@@ -286,11 +294,11 @@ function lineMarkup(line){
  const percent=line.discount.type==='percent';
  return `<details class="compact-bill-line" data-line="${E(line.key)}" ${line.expanded?'open':''}>
   <summary><span><strong data-line-name>${E(line.name||'New service')}</strong>
-  <span data-line-caption>${line.qty} × ${M(line.unitPaise)}</span></span><strong id="line-amount-${E(line.key)}">—</strong></summary>
+  <span data-line-caption>${line.type==='service'?'Service charge: '+M(line.qty*line.unitPaise):line.qty+' × '+M(line.unitPaise)}</span></span><strong id="line-amount-${E(line.key)}">—</strong></summary>
   <div class="line-editor">
    ${line.catalogId&&isStockProduct(line)?'':`<label class="field field-spread">Description<input data-line-field="name" value="${E(line.name)}"></label>`}
-   <label class="field">Quantity<input type="number" min="1" max="9999" data-line-field="qty" value="${line.qty}"></label>
-   <label class="field">Price per item (₹)<input type="number" min="0" step="0.01" data-line-field="unitPaise" value="${amountField(line.unitPaise)}"></label>
+   ${line.type==='service'?'':`<label class="field">Quantity<input type="number" min="1" max="9999" data-line-field="qty" value="${line.qty}"></label>`}
+   <label class="field">${line.type==='service'?'Service price (₹)':'Price per item (₹)'}<input type="number" min="0" step="0.01" data-line-field="unitPaise" value="${amountField(line.unitPaise)}"></label>
    <div class="field"><label for="line-discount-${E(line.key)}">Discount</label><div class="discount-inline">
     <input id="line-discount-${E(line.key)}" type="number" min="0" step="0.01" data-line-field="discountValue" value="${percent?line.discount.value/100:amountField(line.discount.value)}">
     <select data-line-field="discountType" aria-label="Discount type"><option value="fixed" ${percent?'':'selected'}>₹</option><option value="percent" ${percent?'selected':''}>%</option></select>
@@ -310,7 +318,8 @@ document.addEventListener('toggle',event=>{
 },true);
 function updateBillTotals(){const host=$('#bill-summary-dynamic');if(!host||!state.bill)return;for(const line of state.bill.lines){
  const row=host.ownerDocument.querySelector(`[data-line="${E(line.key)}"]`);
- if(row){row.querySelector('[data-line-name]').textContent=line.name||'New service';row.querySelector('[data-line-caption]').textContent=`${line.qty} × ${M(line.unitPaise)}`;}
+ if(row){row.querySelector('[data-line-name]').textContent=line.name||'New service';row.querySelector('[data-line-caption]').textContent=line.type==='service'
+   ?'Service charge: '+M(line.qty*line.unitPaise):`${line.qty} × ${M(line.unitPaise)}`;}
  }
  if(state.bill.editing){
    const amount=$('#bill-paid');
@@ -355,25 +364,48 @@ function initialServices(formData){
  if(services.length>50)throw Error('Add up to 50 services during setup. You can add more in Settings.');
  return services;
 }
-function renderSetup(){return setupFrame(`<form class="setup-form" id="setup-form"><div class="setup-progress">${I('wheel')}${T('onboardStep')}</div><h2>${T('onboardCreate')}</h2><p>Set up your shop once. You can update these details in Settings.</p><button type="button" class="button large" data-action="restore-drive">${I('upload')} Restore from Google Drive backup</button><p class="small-muted">Already used TyreDesk? Restore your previous shop instead of setting it up again.</p><input id="restore-file" type="file" accept=".json,application/json" hidden><div class="field-grid"><div class="field field-spread"><label>${T('businessName')} *</label><input name="name" required maxlength="100" placeholder="e.g. Your Tyre & Alignment Centre" autofocus></div><div class="field"><label>${T('ownerName')} *</label><input name="owner" required maxlength="70" placeholder="Owner's name"></div><div class="field"><label>${T('phone')} *</label><input name="phone" type="tel" required maxlength="20" placeholder="Shop contact"></div><div class="field field-spread"><label>${T('address')}</label><input name="address" maxlength="160" placeholder="Street, shop number, locality"></div><div class="field"><label>${T('city')}</label><input name="city" maxlength="65" placeholder="e.g. Jalna"></div><div class="field"><label>${T('state')}</label><input name="state" maxlength="65" value="Maharashtra"></div><div class="field"><label>${T('language')}</label><select name="language"><option value="en">English</option><option value="hi">हिंदी</option><option value="mr">मराठी</option></select></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="INV" maxlength="12" placeholder="INV"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false">${T('unregistered')}</option><option value="true">${T('registered')}</option></select></div><div class="field"><label>${T('gstin')} <span class="optional">(${T('optional')})</span></label><input name="gstin" maxlength="15" placeholder="15-character GSTIN"></div><div class="field"><label>${T('password')} *</label><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required autocomplete="new-password" placeholder="4–12 digits"><small>${T('ownerPinHelp')}</small></div><div class="field"><label>${T('confirmPassword')} *</label><input name="confirmPin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required placeholder="Repeat PIN"></div></div>${modeChoices()}${serviceSetupPanel()}<div class="consent"><label><input type="checkbox" name="legalConsent" required> I am authorised to set up this shop, agree to the TyreDesk Terms &amp; Conditions and acknowledge the Privacy Policy.</label><p>Read ${legalLinks()}. Acceptance is required to create a new shop.</p></div><button class="button primary large" type="submit">${T('onboardCreate')} ${I('arrow')}</button><div class="setup-foot">${I('lock')} ${T('securityNote')}</div></form>`);}
+
+function tyreSetupFields(){
+ return `<section class="setting-panel" data-setup-tyre-fields hidden>
+  <h3>Which tyre details does this shop use?</h3>
+  <p>Brand is always required. Keep, rename, remove, or add other tyre identifiers. These fields appear in inventory and billing. <strong>This choice is permanent when you create the shop.</strong></p>
+  <div class="field-grid" data-setup-tyre-rows>
+    ${defaultTyreFields().map(f=>`<div class="field field-spread setup-tyre-field" data-setup-tyre-field data-field-id="${E(f.id)}">
+      <label>Field name<input name="tyreField" maxlength="60" required value="${E(f.label)}" placeholder="e.g. Color or Product Code"></label>
+      <button type="button" class="button small" data-action="setup-remove-tyre-field">Remove field</button>
+    </div>`).join('')}
+  </div>
+  <button type="button" class="button" data-action="setup-add-tyre-field">Add different category</button>
+ </section>`;
+}
+function renderSetup(){return setupFrame(`<form class="setup-form" id="setup-form"><div class="setup-progress">${I('wheel')}${T('onboardStep')}</div><h2>${T('onboardCreate')}</h2><p>Set up your shop once. You can update these details in Settings.</p><button type="button" class="button large" data-action="restore-drive">${I('upload')} Restore from Google Drive backup</button><p class="small-muted">Already used TyreDesk? Restore your previous shop instead of setting it up again.</p><input id="restore-file" type="file" accept=".json,application/json" hidden><div class="field-grid"><div class="field field-spread"><label>${T('businessName')} *</label><input name="name" required maxlength="100" placeholder="e.g. Your Tyre & Alignment Centre" autofocus></div><div class="field"><label>${T('ownerName')} *</label><input name="owner" required maxlength="70" placeholder="Owner's name"></div><div class="field"><label>${T('phone')} *</label><input name="phone" type="tel" required maxlength="20" placeholder="Shop contact"></div><div class="field field-spread"><label>${T('address')}</label><input name="address" maxlength="160" placeholder="Street, shop number, locality"></div><div class="field"><label>${T('city')}</label><input name="city" maxlength="65" placeholder="e.g. Jalna"></div><div class="field"><label>${T('state')}</label><input name="state" maxlength="65" value="Maharashtra"></div><div class="field"><label>${T('language')}</label><select name="language"><option value="en">English</option><option value="hi">हिंदी</option><option value="mr">मराठी</option></select></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="INV" maxlength="12" placeholder="INV"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false">${T('unregistered')}</option><option value="true">${T('registered')}</option></select></div><div class="field"><label>${T('gstin')} <span class="optional">(${T('optional')})</span></label><input name="gstin" maxlength="15" placeholder="15-character GSTIN"></div><div class="field"><label>${T('password')} *</label><input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required autocomplete="new-password" placeholder="4–12 digits"><small>${T('ownerPinHelp')}</small></div><div class="field"><label>${T('confirmPassword')} *</label><input name="confirmPin" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required placeholder="Repeat PIN"></div></div>${modeChoices()}${tyreSetupFields()}${serviceSetupPanel()}<div class="consent"><label><input type="checkbox" name="legalConsent" required> I am authorised to set up this shop, agree to the TyreDesk Terms &amp; Conditions and acknowledge the Privacy Policy.</label><p>Read ${legalLinks()}. Acceptance is required to create a new shop.</p></div><button class="button primary large" type="submit">${T('onboardCreate')} ${I('arrow')}</button><div class="setup-foot">${I('lock')} ${T('securityNote')}</div></form>`);}
 function renderLocked(){const shop=state.data.settings;return `<main class="lock-layout"><div class="lock-art"><div class="showcase-logo"><div class="brand-mark">${I('wheel')}</div><span>TYRE<span>DESK</span></span></div></div><div class="lock-card"><div data-update-banner>${updateBanner()}</div><div class="eyebrow">SECURE WORKSPACE</div><h1>${T('locked')}.</h1><p>${E(shop.name)} · ${T('pinPrompt')}</p><form id="unlock-form"><div class="field"><label>${T('password')}</label><input type="password" name="pin" autocomplete="off" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" required autofocus placeholder="••••••"></div><button class="button primary large" type="submit">${I('lock')}${T('unlockBtn')}${I('arrow')}</button></form></div></main>`;}
 function inventoryModePanel(){
- const mode=shopMode(),locked=state.data.catalog.some(p=>p.type==='tyre');
- return `<section class="setting-panel"><h2>Inventory Mode</h2><form id="inventory-mode-form">${modeChoices(mode,locked)}
- ${locked?'':'<button type="submit" class="button primary">Save inventory mode</button>'}</form></section>`;
+ const mode=shopMode();
+ if(state.data.settings?.inventoryMode){
+   return `<section class="setting-panel"><h2>Inventory Mode</h2>
+     <p><strong>${mode==='simple'?'Simple':'Detailed'} Inventory</strong></p>
+     <p class="small-muted">This choice is permanent after business setup to protect stock identities and billing history.</p>
+   </section>`;
+ }
+ return `<section class="setting-panel"><h2>Inventory Mode</h2>
+   <form id="inventory-mode-form">${modeChoices(mode,false)}
+     <button type="submit" class="button primary">Choose inventory mode permanently</button>
+   </form></section>`;
 }
-function settings(){const s=state.data.settings;return header(T('settings'),T('settingsSubtitle'),'PREFERENCES / OWNERSHIP')+`<div class="settings-grid"><div>${cloudPanel()}${updatePanel()}${inventoryModePanel()}${categoriesPanel()}${servicesSettingsPanel()}<section class="setting-panel"><h2>${T('shopProfile')}</h2><p class="lead">Business details are captured on every new invoice. Historical invoices keep their original business details.</p><form id="settings-form"><div class="field-grid"><div class="field field-spread"><label>${T('businessName')}</label><input name="name" required value="${E(s.name)}"></div><div class="field"><label>${T('ownerName')}</label><input name="owner" required value="${E(s.owner)}"></div><div class="field"><label>${T('phone')}</label><input name="phone" required value="${E(s.phone)}"></div><div class="field"><label>${T('whatsapp')}</label><input name="whatsapp" value="${E(s.whatsapp||'')}"></div><div class="field"><label>${T('address')}</label><input name="address" value="${E(s.address||'')}"></div><div class="field"><label>${T('city')}</label><input name="city" value="${E(s.city||'')}"></div><div class="field"><label>${T('state')}</label><input name="state" value="${E(s.state||'')}"></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="${E(s.invoicePrefix||'INV')}"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false" ${!s.gstRegistered?'selected':''}>${T('unregistered')}</option><option value="true" ${s.gstRegistered?'selected':''}>${T('registered')}</option></select></div><div class="field"><label>${T('gstin')}</label><input name="gstin" maxlength="15" value="${E(s.gstin||'')}"></div><div class="field field-spread"><label>${T('terms')}</label><textarea name="terms" placeholder="Optional service terms, warranty notes…">${E(s.terms||'')}</textarea></div><div class="field field-spread"><label for="payment-qr-file">Shop payment QR (UPI image)</label><input id="payment-qr-file" name="paymentQr" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP, up to 5 MB. Use a clear, complete QR with its white border. Verify the recipient in your payment app. Synced with shop settings and included in backups.</small>${s.paymentQrData?'<img class="qr-settings-preview" src="'+E(s.paymentQrData)+'" alt="Shop payment QR"><label><input name="removeQr" type="checkbox"> Remove payment QR</label>':''}</div></div><button class="button primary settings-save" type="submit">${I('check')}${T('saveChanges')}</button></form></section><section class="setting-panel"><h2>${T('language')} & ${T('theme')}</h2><p class="lead">Switch the application language or appearance instantly.</p><div class="field-grid"><div class="field"><label>${T('language')}</label><select id="setting-language"><option value="en" ${s.language==='en'?'selected':''}>English</option><option value="hi" ${s.language==='hi'?'selected':''}>हिंदी</option><option value="mr" ${s.language==='mr'?'selected':''}>मराठी</option></select></div><div class="field"><label>${T('theme')}</label><select id="setting-theme"><option value="light" ${(s.theme||'light')==='light'?'selected':''}>${T('light')}</option><option value="dark" ${s.theme==='dark'?'selected':''}>${T('dark')}</option></select></div></div></section></div><div id="backup-settings">${backupSettingsCard()}<section class="setting-panel"><h2>${T('backupRestore')}</h2><p class="lead">${T('backupHint')}</p><div class="setting-actions"><button class="setting-action" data-action="backup-drive">${I('upload')}<span><strong>Back Up to Google Drive</strong><small>Keep a copy safely outside this device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore-drive">${I('download')}<span><strong>Restore from Google Drive</strong><small>Recover a shop on this or a new device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="backup">${I('download')}<span><strong>${T('backup')}</strong><small>Export full verified JSON archive</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore">${I('upload')}<span><strong>${T('restore')}</strong><small>Validate and atomically replace the data</small></span>${I('chevron','trailing')}</button><input id="restore-file" type="file" accept=".json,application/json" hidden></div><div class="muted-note" style="margin-top:18px">${I('alert')} ${T('restoreWarning')}</div></section><section class="setting-panel"><h2>${T('security')}</h2><p class="lead">${T('securityNote')}</p><div class="setting-actions"><button class="setting-action" data-action="change-pin">${I('lock')}<span><strong>${T('changePassword')}</strong><small>Current PIN required</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="persist-storage">${I('shield')}<span><strong>Request protected storage</strong><small>Ask browser not to evict local records</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="install">${I('mobile')}<span><strong>${T('install')}</strong><small>Make this an app on your device</small></span>${I('chevron','trailing')}</button></div></section><section class="setting-panel"><h2>Terms &amp; Privacy</h2><p>${legalLinks()}</p><p class="small-muted">${s.legalConsent?'Accepted version '+E(s.legalConsent.termsVersion)+' on '+E(new Date(s.legalConsent.acceptedAt).toLocaleString('en-IN')):'This shop predates consent recording; no acceptance has been assumed.'}</p><p>These documents should be reviewed by an Indian legal professional before commercial distribution.</p></section></div></div>`;}
+function settings(){const s=state.data.settings;return header(T('settings'),T('settingsSubtitle'),'PREFERENCES / OWNERSHIP')+`<div class="settings-grid"><div>${cloudPanel()}${updatePanel()}${inventoryModePanel()}${categoriesPanel()}${servicesSettingsPanel()}<section class="setting-panel"><h2>${T('shopProfile')}</h2><p class="lead">Business details are captured on every new invoice. Historical invoices keep their original business details.</p><form id="settings-form"><div class="field-grid"><div class="field field-spread"><label>${T('businessName')}</label><input name="name" required value="${E(s.name)}"></div><div class="field"><label>${T('ownerName')}</label><input name="owner" required value="${E(s.owner)}"></div><div class="field"><label>${T('phone')}</label><input name="phone" required value="${E(s.phone)}"></div><div class="field"><label>${T('whatsapp')}</label><input name="whatsapp" value="${E(s.whatsapp||'')}"></div><div class="field"><label>${T('address')}</label><input name="address" value="${E(s.address||'')}"></div><div class="field"><label>${T('city')}</label><input name="city" value="${E(s.city||'')}"></div><div class="field"><label>${T('state')}</label><input name="state" value="${E(s.state||'')}"></div><div class="field"><label>${T('prefix')}</label><input name="invoicePrefix" value="${E(s.invoicePrefix||'INV')}"></div><div class="field"><label>${T('gstRegistered')}</label><select name="gstRegistered"><option value="false" ${!s.gstRegistered?'selected':''}>${T('unregistered')}</option><option value="true" ${s.gstRegistered?'selected':''}>${T('registered')}</option></select></div><div class="field"><label>${T('gstin')}</label><input name="gstin" maxlength="15" value="${E(s.gstin||'')}"></div><div class="field field-spread"><label>${T('terms')}</label><textarea name="terms" placeholder="Optional service terms, warranty notes…">${E(s.terms||'')}</textarea></div><div class="field field-spread"><label for="payment-qr-file">Shop payment QR (UPI image)</label><input id="payment-qr-file" name="paymentQr" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP, up to 5 MB. Use a clear, complete QR with its white border. Verify the recipient in your payment app. Synced with shop settings and included in backups.</small>${s.paymentQrData?'<img class="qr-settings-preview" src="'+E(s.paymentQrData)+'" alt="Shop payment QR"><label><input name="removeQr" type="checkbox"> Remove payment QR</label>':''}</div></div><button class="button primary settings-save" type="submit">${I('check')}${T('saveChanges')}</button></form></section><section class="setting-panel"><h2>${T('language')} & ${T('theme')}</h2><p class="lead">Switch the application language or appearance instantly.</p><div class="field-grid"><div class="field"><label>${T('language')}</label><select id="setting-language"><option value="en" ${s.language==='en'?'selected':''}>English</option><option value="hi" ${s.language==='hi'?'selected':''}>हिंदी</option><option value="mr" ${s.language==='mr'?'selected':''}>मराठी</option></select></div><div class="field"><label>${T('theme')}</label><select id="setting-theme"><option value="light" ${(s.theme||'light')==='light'?'selected':''}>${T('light')}</option><option value="dark" ${s.theme==='dark'?'selected':''}>${T('dark')}</option></select></div></div></section></div><div id="backup-settings">${backupSettingsCard()}<section class="setting-panel"><h2>${T('backupRestore')}</h2><p class="lead">${T('backupHint')}</p><div class="setting-actions"><button class="setting-action" data-action="backup-drive">${I('upload')}<span><strong>Back Up to Google Drive</strong><small>Keep a copy safely outside this device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore-drive">${I('download')}<span><strong>Restore from Google Drive</strong><small>Recover a shop on this or a new device</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="backup">${I('download')}<span><strong>${T('backup')}</strong><small>Export full verified JSON archive</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="restore">${I('upload')}<span><strong>${T('restore')}</strong><small>Validate and atomically replace the data</small></span>${I('chevron','trailing')}</button><input id="restore-file" type="file" accept=".json,application/json" hidden></div><div class="muted-note" style="margin-top:18px">${I('alert')} ${T('restoreWarning')}</div></section><section class="setting-panel"><h2>${T('security')}</h2><p class="lead">${T('securityNote')}</p><div class="setting-actions"><button class="setting-action" data-action="change-pin">${I('lock')}<span><strong>${T('changePassword')}</strong><small>Current PIN required</small></span>${I('chevron','trailing')}</button><button class="setting-action" data-action="persist-storage">${I('shield')}<span><strong>Request protected storage</strong><small>Ask browser not to evict local records</small></span>${I('chevron','trailing')}</button>${nativeAndroid()?'':`<button class="setting-action" data-action="install">${I('mobile')}<span><strong>${T('install')}</strong><small>Make this an app on your device</small></span>${I('chevron','trailing')}</button>`}</div></section><section class="setting-panel"><h2>Terms &amp; Privacy</h2><p>${legalLinks()}</p><p class="small-muted">${s.legalConsent?'Accepted version '+E(s.legalConsent.termsVersion)+' on '+E(new Date(s.legalConsent.acceptedAt).toLocaleString('en-IN')):'This shop predates consent recording; no acceptance has been assumed.'}</p></section></div></div>`;}
 function modal(title,subtitle,body,footer='',wide=false,variant=''){state.modal=`<div class="overlay ${variant}" data-close-modal><div class="modal ${wide?'xl':''}" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>${title}</h2>${subtitle?`<p>${subtitle}</p>`:''}</div><button class="icon-button" data-action="close-modal" aria-label="Close">${I('close')}</button></div><div class="modal-body">${body}</div>${footer?`<div class="modal-footer">${footer}</div>`:''}</div></div>`;const h=$('#modal-host');if(h)h.innerHTML=state.modal;}
 function closeModal(){state.modal=null;const h=$('#modal-host');if(h)h.innerHTML='';}
 function showBackupOptions(){
  const due=driveReminderDue();
  modal('Backup','',`<div class="setting-actions">
     <p class="small-muted" data-backup-status>${E(backupStatusLine())}</p>
-    ${due?'<p class="small-muted">A Google Drive backup is due today.</p>':''}
+    ${due?'<p class="small-muted">Monday reminder: save your weekly recovery copy to Google Drive.</p>':''}
     <button type="button" class="button primary" data-action="backup-drive">${I('upload')}Back up to Google Drive</button>
     <button type="button" class="button" data-action="backup">${I('download')}Download backup</button>
     <button type="button" class="button" data-action="backup-settings">${I('settings')}Backup settings</button>
- </div>`,due?'<button type="button" class="button" data-action="dismiss-drive-reminder">Remind me tomorrow</button>':'');
+ </div>`,due?`<button type="button" class="button" data-action="confirm-drive-backup">I saved a Google Drive backup</button>
+    <button type="button" class="button" data-action="dismiss-drive-reminder">Dismiss for this Monday</button>`:'');
 }
 function modalButtons(submitId,label=T('save')){return `<button class="button" data-action="close-modal">${T('cancel')}</button><button type="submit" class="button primary" form="${submitId}">${I('check')}${label}</button>`;}
 function showCustomerModal(c=null){const vehicles=c?state.data.vehicles.filter(v=>v.customerId===c.id):[];const orders=c?activeOrders().filter(o=>o.customerId===c.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)):[];const spend=orders.reduce((n,o)=>n+o.totals.grandPaise,0),due=orders.reduce((n,o)=>n+o.duePaise,0);
@@ -387,10 +419,12 @@ function submittedAttributes(data){
 }
 function categoriesPanel(){
  const others=shopCategories().filter(c=>c.id!=='tyres');
+ const fields=customTyreFields(state.data.settings)?tyreFields(state.data.settings).map(f=>f.label):
+   shopMode()==='detailed'?['Model','Size',...tyreFields(state.data.settings).map(f=>f.label)]:[];
  return `<section class="setting-panel">
-  <h2>Tyre classification</h2>
-  <p>Add extra details such as Load Index, Ply Rating or Construction. If two tyres with the same brand, model and size must be separate stock records, mark that field <strong>Separate tyre variants</strong>. Previously purchased tyres are never merged automatically.</p>
-  <button type="button" class="button" data-action="edit-category" data-category="tyres">Manage tyre fields</button>
+  <h2>Tyre identification</h2>
+  <p><strong>Brand</strong>${fields.length?' · '+fields.map(E).join(' · '):''}</p>
+  <p>New shops select tyre-identification fields once during setup. Existing shop records retain their previous classification rules.</p>\n  ${customTyreFields(state.data.settings)?'':`<button type="button" class="button" data-action="edit-category" data-category="tyres">Manage legacy tyre fields</button>`}
   ${others.length?`<p class="small-muted">Earlier custom product categories are preserved for compatibility:</p>
    <ul class="settings-services">${others.map(c=>`<li><span>${E(c.name)}</span><button type="button" class="button small" data-action="edit-category" data-category="${E(c.id)}">Edit</button></li>`).join('')}</ul>`:''}
  </section>`;
@@ -478,7 +512,7 @@ function showStockModal(product=null,kind='purchase'){
   }
   const mode=shopMode();
   if(!mode){nav('settings');$('#inventory-mode-form')?.scrollIntoView({block:'center'});return;}
-  const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product,state.data.settings)}${!product?`<div class="field-grid">${categoryFields(shopCategories()[0],null,true)}</div>`:''}</form>`;
+  const body=`<form id="purchase-form" data-product="${E(product?.id||'')}" data-request="${uid()}" data-mode="${mode}">${purchaseFields(mode,product,state.data.settings)}${!product&&!(mode==='detailed'&&customTyreFields(state.data.settings))?`<div class="field-grid">${categoryFields(shopCategories()[0],null,true)}</div>`:''}</form>`;
   modal(product?'Restock tyres':'Add purchased tyres','',body,modalButtons('purchase-form','Save purchase'),false,'purchase-dialog');
   if(!product)updatePurchaseFields($('#purchase-form'),mode,activeTyres(),'',state.data.settings);
   return;
@@ -556,11 +590,25 @@ async function doAction(action,target){switch(action){
    return;
  }
  case 'setup-remove-service':target.closest('.setup-service')?.remove();return;
+ case 'setup-add-tyre-field':{
+   const rows=$('[data-setup-tyre-rows]');
+   if(!rows||rows.children.length>=12)return;
+   const row=document.createElement('div');
+   row.className='field field-spread setup-tyre-field';
+   row.dataset.setupTyreField='';
+   row.dataset.fieldId=uid();
+   row.innerHTML=`<label>Field name<input name="tyreField" maxlength="60" required placeholder="e.g. Color, Code, Ply Rating"></label>
+      <button type="button" class="button small" data-action="setup-remove-tyre-field">Remove field</button>`;
+   rows.append(row);row.querySelector('input').focus();return;
+ }
+ case 'setup-remove-tyre-field':target.closest('[data-setup-tyre-field]')?.remove();return;
  
  case 'inventory-mode-settings':await nav('settings');$('#inventory-mode-form')?.scrollIntoView({block:'center'});return;
  case 'check-updates':await checkUpdates();return;
  case 'install-update':await installAppUpdate();return;
- case 'edit-category':showCategoryModal(shopCategories().find(c=>c.id===target.dataset.category));return;
+ case 'edit-category':
+   if(target.dataset.category==='tyres'&&customTyreFields(state.data.settings)){toast('Tyre identifiers are fixed after business setup.');return;}
+   showCategoryModal(shopCategories().find(c=>c.id===target.dataset.category));return;
  case 'add-category-field':{
    const host=$('[data-category-fields]');
    if(host.children.length<12)host.insertAdjacentHTML('beforeend',`<div class="field field-spread"><label>Field name<input name="field" maxlength="60" placeholder="e.g. Ply Rating"></label>${$('#category-form')?.dataset.id==='tyres'?`<label class="consent"><input type="checkbox" name="stockKeyIndex" value="${host.children.length}" ${$('#category-form')?.dataset.locked==='yes'?'disabled':''}> Separate tyre variants by this field</label>`:''}</div>`);
@@ -570,7 +618,7 @@ async function doAction(action,target){switch(action){
  case 'edit-stock-product':showCustomProductModal(shopCategories().find(c=>c.id===target.dataset.category),customProducts().find(p=>p.id===target.dataset.product));return;
  case 'buy-tyres':showStockModal(null,'purchase');return;
  case 'export-inventory':{
-   const mode=shopMode(),details=mode!=='simple',fields=tyreFields(state.data.settings);
+   const mode=shopMode(),details=mode!=='simple'&&!customTyreFields(state.data.settings),fields=tyreFields(state.data.settings);
    const rows=activeTyres().map(p=>[p.brand||p.name,...(details?[p.model,p.size]:[]),
      ...fields.map(field=>p.attributes?.[field.id]||''),p.stockQty||0,fromPaise(p.costPaise),fromPaise(p.pricePaise)]);
    saveBlob(toCSV(['Brand',...(details?['Model','Size']:[]),...fields.map(f=>f.label),'Current stock','Cost INR','Price INR'],rows),`TyreDesk-inventory-${todayISO()}.csv`,'text/csv;charset=utf-8');return;
@@ -584,8 +632,11 @@ async function doAction(action,target){switch(action){
  case 'backup-drive':await backupToDrive();return;
  case 'restore-drive':await restoreFromDrive();return;
  case 'dismiss-drive-reminder':reminderStore.setItem(driveReminderDismissKey,driveDay());closeModal();render();return;
+ case 'confirm-drive-backup':
+   if(!window.confirm('Confirm the backup was saved successfully to your Google Drive account?'))return;
+   reminderStore.setItem(localDriveDateKey,driveDay());closeModal();render();toast('Weekly Google Drive backup marked complete.');return;
  case 'restore':{const input=$('#restore-file');if(input){input.click();}else{await nav('settings');$('#restore-file')?.click();}return;}
- case 'install':if(state.installPrompt){state.installPrompt.prompt();state.installPrompt=null;}else installationInfo();return;
+ case 'install':if(nativeAndroid())return;if(state.installPrompt){state.installPrompt.prompt();state.installPrompt=null;}else installationInfo();return;
  case 'change-pin':changePinModal();return;
  case 'persist-storage':if(navigator.storage?.persist){const ok=await navigator.storage.persist();toast(ok?'Persistent storage approved by browser.':'Browser did not grant persistent storage. Keep regular backups.',!ok);}else toast('Persistent storage API not supported. Keep regular backups.',true);return;
  case 'share-note':nav('sales');toast(T('openInvoiceToShare'));return;
@@ -670,7 +721,17 @@ async function runForm(form){const f=new FormData(form);const v=k=>String(f.get(
  }
  if(form.id==='setup-form'){if(accountStep!=='setup')throw Error('Sign in to set up your shop.');const legalConsent=consentRecord(f.get('legalConsent')==='on');const pin=v('pin');if(!/^\d{4,12}$/.test(pin))throw Error(T('pinMin'));if(pin!==v('confirmPin'))throw Error('PINs do not match');const gst=v('gstRegistered')==='true',gstin=v('gstin').toUpperCase();if(gst&&gstin.length!==15)throw Error('A GST-registered shop needs a valid 15-character GSTIN');
  const inventoryMode=v('inventoryMode');if(!['simple','detailed'].includes(inventoryMode))throw Error('Choose an inventory mode.');
- const saltHex=salt(),pinHash=await hashPin(pin,saltHex);const s={id:'shop',inventoryMode,legalConsent,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:'',address:v('address'),city:v('city'),state:v('state'),gstin,invoicePrefix:v('invoicePrefix')||'INV',gstRegistered:gst,terms:'',language:v('language'),theme:'light',pinHash,pinSalt:saltHex,createdAt:now()};await finishFirstSetup(s,initialServices(f));await enterAccount();return;}
+ const chosen=inventoryMode==='detailed'
+   ?[...form.querySelectorAll('[data-setup-tyre-field]')].map(row=>({
+       id:row.dataset.fieldId,label:row.querySelector('input[name="tyreField"]').value.trim().replace(/\s+/g,' '),stockKey:true
+     })):[];
+ if(inventoryMode==='detailed'&&(!chosen.length||chosen.length>12||
+    chosen.some(item=>!item.label||item.label.length>60)||
+    new Set(chosen.map(item=>item.label.toLocaleLowerCase())).size!==chosen.length||
+    chosen.some(item=>item.label.toLowerCase()==='brand')))
+   throw Error('Choose 1–12 unique tyre details, different from Brand, before creating the shop.');
+ const inventoryCategories=inventoryMode==='detailed'?[{id:'tyres',name:'Tyres',fields:chosen}]:[];
+ const saltHex=salt(),pinHash=await hashPin(pin,saltHex);const s={id:'shop',inventoryMode,inventoryModeLocked:true,tyreIdentitySchema:inventoryMode==='detailed'?'field-based-v1':undefined,inventoryCategories,legalConsent,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:'',address:v('address'),city:v('city'),state:v('state'),gstin,invoicePrefix:v('invoicePrefix')||'INV',gstRegistered:gst,terms:'',language:v('language'),theme:'light',pinHash,pinSalt:saltHex,createdAt:now()};await finishFirstSetup(s,initialServices(f));await enterAccount();return;}
  if(form.id==='unlock-form'){const s=state.data.settings;if(await hashPin(v('pin'),s.pinSalt)!==s.pinHash)throw Error(T('wrongPin'));sessionStorage.setItem('tyredesk-unlocked','yes');await refresh();state.locked=false;render();updateCloudPresence();return;}
  if(form.id==='settings-form'){const s=state.data.settings;const gst=v('gstRegistered')==='true',gstin=v('gstin').toUpperCase();if(gst&&gstin.length!==15)throw Error('GST-registered businesses must enter a 15-character GSTIN');await saveSetting({...s,name:v('name'),owner:v('owner'),phone:v('phone'),whatsapp:v('whatsapp'),address:v('address'),city:v('city'),state:v('state'),invoicePrefix:v('invoicePrefix').replace(/\W/g,'').slice(0,12)||'INV',gstRegistered:gst,gstin,terms:v('terms'),paymentQrData:f.get('removeQr')?'':await encodePaymentQr(f.get('paymentQr'),s.paymentQrData||'')});await refresh();toast(T('saveChanges'));return;}
  if(form.id==='reminder-form'){const date=new Date(v('due'));if(!v('due')||!Number.isFinite(date.getTime()))throw Error(T('remindersInvalidDate'));await saveReminder({id:form.dataset.id||undefined,title:v('title'),notes:v('notes'),dueAt:date.toISOString()});await refresh();closeModal();toast(T('remindersSaved'));return;}
@@ -758,9 +819,15 @@ document.addEventListener('input',event=>{
  if(target.id==='customer-lookup'){state.bill.customerQuery=target.value;state.bill.selectedCustomerId=null;const q=target.value.trim();if(/^\+?[\d\s-]+$/.test(q)){state.bill.customerPhone=q;const phone=$('#bill-customer-phone');if(phone)phone.value=q;}else if(q){state.bill.customerName=q;const n=$('#bill-customer-name');if(n)n.value=q;}loadCustomerSuggestions(target.value).catch(errorMessage);return;}
  const billFields={'bill-customer-name':'customerName','bill-customer-phone':'customerPhone','bill-vehicle':'vehicle','bill-discount-value':'billDiscountValue','bill-paid':'paid','bill-reference':'paymentReference','bill-notes':'notes'};
  if(billFields[target.id]&&state.bill){state.bill[billFields[target.id]]=target.value;updateBillTotals();return;}
- if(target.dataset.lineField&&state.bill){const node=target.closest('[data-line]');const line=state.bill.lines.find(l=>l.key===node?.dataset.line);if(!line)return;const prop=target.dataset.lineField;switch(prop){case'name':line.name=target.value;break;case'qty':line.qty=Number(target.value);break;case'taxBps':line.taxBps=Math.round(Number(target.value)*100);break;case'unitPaise':line.unitPaise=toPaise(target.value);break;case'discountValue':line.discount.value=line.discount.type==='percent'?Math.round(Number(target.value)*100):toPaise(target.value);break;default:break;}updateBillTotals();return;}
+ if(target.dataset.lineField&&state.bill){const node=target.closest('[data-line]');const line=state.bill.lines.find(l=>l.key===node?.dataset.line);if(!line)return;const prop=target.dataset.lineField;switch(prop){case'name':line.name=target.value;break;case'qty':if(line.type!=='service')line.qty=Number(target.value);break;case'taxBps':line.taxBps=Math.round(Number(target.value)*100);break;case'unitPaise':line.unitPaise=toPaise(target.value);break;case'discountValue':line.discount.value=line.discount.type==='percent'?Math.round(Number(target.value)*100):toPaise(target.value);break;default:break;}updateBillTotals();return;}
 });
 document.addEventListener('change',async event=>{const el=event.target;try{
+ if(el.name==='inventoryMode'&&el.closest('#setup-form')){
+   const section=$('[data-setup-tyre-fields]');
+   if(section)section.hidden=el.value!=='detailed';
+   section?.querySelectorAll('input[name="tyreField"]').forEach(input=>{input.disabled=section.hidden;});
+   return;
+ }
  if(el.dataset.purchaseChoice){
    const form=el.form,key=el.dataset.purchaseChoice,input=form.elements[key];
    const manual=el.value==='__new__';
@@ -808,38 +875,40 @@ document.addEventListener('touchend',event=>{
  if(dx < -80&&Math.abs(dx)>Math.abs(dy)*1.5){state.menuOpen=false;render();}
 },{passive:true});
 
-// Keep the focused field visible above Android's soft keyboard and avoid
-// displaying a bottom navigation bar above the keyboard.
+// Keep every mobile dialog inside Android's *visible* viewport when the
+// keyboard opens. Never scroll the document behind a dialog to focus an input.
 if(window.visualViewport){
  let fullHeight=window.visualViewport.height;
+ const viewport=window.visualViewport;
+ const scrollFocusedInput=()=>{
+  const target=document.activeElement;
+  if(!target?.matches?.('input,textarea,select')||!target.isConnected)return;
+  const region=target.closest('.modal-body');
+  if(region){
+   const bounds=region.getBoundingClientRect(),field=target.getBoundingClientRect();
+   if(field.bottom>bounds.bottom-12)region.scrollTop+=field.bottom-bounds.bottom+12;
+   else if(field.top<bounds.top+12)region.scrollTop+=field.top-bounds.top-12;
+  }
+ };
  const viewportChanged=()=>{
-  const vv=window.visualViewport;
   const focused=document.activeElement;
   const typing=focused?.matches?.('input:not([type="checkbox"]):not([type="radio"]),textarea,select');
-  if(!typing)fullHeight=Math.max(fullHeight,vv.height);
-  const keyboardOpen=!!typing&&fullHeight-vv.height>130;
+  if(!typing)fullHeight=Math.max(fullHeight,viewport.height);
+  const keyboardOpen=!!typing&&fullHeight-viewport.height>130;
   document.documentElement.classList.toggle('keyboard-open',keyboardOpen);
-  document.documentElement.style.setProperty('--visible-screen-height',Math.round(vv.height)+'px');
+  document.documentElement.style.setProperty('--visible-screen-height',Math.round(viewport.height)+'px');
+  document.documentElement.style.setProperty('--visible-screen-top',Math.round(viewport.offsetTop)+'px');
+  if(typing&&focused?.closest('.modal-body'))requestAnimationFrame(scrollFocusedInput);
  };
- window.visualViewport.addEventListener('resize',viewportChanged);
- window.visualViewport.addEventListener('scroll',viewportChanged);
+ viewport.addEventListener('resize',viewportChanged);
+ viewport.addEventListener('scroll',viewportChanged);
  document.addEventListener('focusin',event=>{
-  if(!event.target.matches('input,textarea'))return;
-  fullHeight=Math.max(fullHeight,window.visualViewport.height);
-  setTimeout(()=>{
-   viewportChanged();
-   const target=event.target;
-   if(target.isConnected&&document.activeElement===target){
-    const region=target.closest('.purchase-dialog .modal-body');
-    if(region){
-     const bounds=region.getBoundingClientRect(),field=target.getBoundingClientRect();
-     if(field.bottom>bounds.bottom-10)region.scrollTop+=field.bottom-bounds.bottom+10;
-     else if(field.top<bounds.top+10)region.scrollTop+=field.top-bounds.top-10;
-    }else target.scrollIntoView({block:'center',behavior:'smooth'});
-   }
-  },210);
+  if(!event.target.matches('input,textarea,select'))return;
+  fullHeight=Math.max(fullHeight,viewport.height);
+  requestAnimationFrame(()=>{viewportChanged();scrollFocusedInput();});
+  setTimeout(()=>{viewportChanged();scrollFocusedInput();},240);
  });
- document.addEventListener('focusout',()=>setTimeout(viewportChanged,220));
+ document.addEventListener('focusout',()=>setTimeout(viewportChanged,240));
  viewportChanged();
 }
 window.setInterval(tickReminderIndicator,60*1000);

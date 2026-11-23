@@ -65,7 +65,7 @@ try{
   for(const name of ['dashboard','customers','inventory','billing','sales','expenses','reports','catalog','settings','dues','reminders']){
    await nav(name);await fits(name+' at '+width);
   }
-  await nav('settings');assert.equal(await page.locator('#inventory-mode-form fieldset').evaluate(f=>f.disabled),true);
+  await nav('settings');assert.equal(await page.locator('#inventory-mode-form').count(),0,'Shop mode is fixed after setup');
   await page.getByRole('heading',{name:'Update App'}).waitFor();
   if(!process.env.TYREDESK_TEST_URL){
    await page.getByText('You’re using the latest version.',{exact:true}).waitFor();

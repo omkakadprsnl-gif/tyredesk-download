@@ -1,3 +1,15 @@
+# TyreDesk 1.3.11 — One-time shop tyre setup and mobile forms
+
+During **first business setup**, choose Simple or Detailed inventory permanently. Detailed shops configure the tyre-identification fields they actually use: Brand stays required, while the owner can keep, rename, remove or add fields such as Color, Size, Product Code or Ply Rating **before creating the shop**. The chosen fields—not hardcoded Model and Size—are used for purchasing, restocking, inventory search, separate tyre-stock identities, billing and CSV exports. After setup, the configuration is fixed to protect stock and invoice history. Existing shops and old tyre identities retain their historical formats.
+
+Mobile dialogs for inventory, expenses, reminders and other forms now use a common keyboard-safe layout with aligned input boxes and accessible Save/Cancel buttons. Inside the Android APK, the browser-only **Install App** button is hidden. The redundant lawyer-review disclaimer has been removed from Settings.
+
+**Services** now display a flat charge without an editable quantity on bills; printable and WhatsApp invoices omit quantity for service rows. Tyres and physical products still show quantities. Historical service totals are not rewritten.
+
+On Mondays, the dashboard shows an **in-app Google Drive backup reminder**, which opens the existing Google Drive backup action. It can be dismissed for that Monday or marked complete after the owner confirms that the backup was saved. This is a reminder while the app is open, **not** an automatic Google Drive upload or an OS push notification.
+
+**Database prerequisite:** Apply `20261123060000_shop_defined_tyre_fields.sql` to every existing shop's Supabase project before using the new setup format. Update all devices together. Do not uninstall Android to upgrade; install the verified signed APK over the existing installation. No business data is intentionally cleared by this update.
+
 # TyreDesk 1.3.10 — Custom tyre classification
 
 Shop owners can add tyre-specific fields such as Load Index, Ply Rating or Construction and choose which fields distinguish otherwise identical tyre stock. Purchasing creates separate stock records for distinct variants, while billing requires explicit variant selection when necessary. Tyre searches and CSV exports now include the additional classification fields. Existing stock IDs, invoices, purchases and backups are preserved. Older unclassified stock is not merged into new variants and can be classified deliberately by editing its attributes. Once distinct variants exist, the stock-identity fields are locked to prevent accidental mergers.

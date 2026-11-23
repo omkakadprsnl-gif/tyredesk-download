@@ -9,6 +9,11 @@ export function inventoryCategories(settings) {
 }
 export const tyreFields = settings => inventoryCategories(settings)[0].fields||[];
 export const stockKeyFields = settings => tyreFields(settings).filter(field=>field.stockKey===true);
+export const customTyreFields = settings => settings?.tyreIdentitySchema==='field-based-v1';
+export const defaultTyreFields = () => [
+  {id:'field-model',label:'Model',stockKey:true},
+  {id:'field-size',label:'Size',stockKey:true}
+];
 export const productCategory = (settings,item) =>
   inventoryCategories(settings).find(category=>category.id===(item.type==='tyre'?'tyres':item.categoryId));
 const sizeKey = value => tyreKey(value).replace(/\s*\/\s*/g, '/').replace(/(\d)\s*([rz]+)\s*(?=\d)/g, '$1$2');
@@ -22,6 +27,15 @@ export function tyreIdentity(mode, values, settings) {
   if (mode !== 'simple' && mode !== 'detailed') return '';
   const brand=tyreKey(values.brand);
   if(!brand)return '';
+  if(mode==='detailed'&&customTyreFields(settings)){
+    const details={};
+    for(const field of stockKeyFields(settings)){
+      const value=tyreKey(values.attributes?.[field.id]);
+      if(!value)return '';
+      details[field.id]=value;
+    }
+    return JSON.stringify([brand,'custom',details]);
+  }
   const base=mode==='simple'?[brand]:[brand,tyreKey(values.model),sizeKey(values.size)];
   if(base.some(value=>!value))return '';
   const keys=stockKeyFields(settings);
@@ -38,6 +52,8 @@ export function isVariantTyre(item) {
   if(item?.type!=='tyre'||!item.tyreIdentity)return false;
   try{
     const id=JSON.parse(item.tyreIdentity);
+    if(item.inventoryMode==='detailed'&&id.length===3&&id[1]==='custom')
+      return id[2]&&typeof id[2]==='object'&&!Array.isArray(id[2]);
     const base=item.inventoryMode==='simple'?1:3;
     return Array.isArray(id)&&id.length===base+1&&id[base]&&
       typeof id[base]==='object'&&!Array.isArray(id[base]);
@@ -45,7 +61,8 @@ export function isVariantTyre(item) {
 }
 export function tyreName(product,mode,settings) {
   const brand=tyreText(product.brand)||product.name;
-  const base=mode==='simple'?brand:[brand,product.model,product.size].filter(Boolean).join(' · ');
+  const base=mode==='simple'||customTyreFields(settings)?brand:
+    [brand,product.model,product.size].filter(Boolean).join(' · ');
   const extras=tyreFields(settings).filter(field=>tyreText(product.attributes?.[field.id]))
     .map(field=>field.label+': '+tyreText(product.attributes[field.id]));
   return [base,...extras].join(' · ');

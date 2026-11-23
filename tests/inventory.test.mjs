@@ -17,7 +17,7 @@ assert.equal(tyre.stockQty,8);
 assert.equal(tyre.model,'');
 assert.equal(tyre.size,'');
 assert.deepEqual((await all('purchases')).map(p=>p.costPaise),[300000,330000]);
-await assert.rejects(setInventoryMode('detailed'),/reassign/i);
+await assert.rejects(setInventoryMode('detailed'),/permanent|fixed/i);
 
 const item={name:'MRF',catalogId:tyre.id,type:'tyre',qty:2,unitPaise:tyre.pricePaise,taxBps:1800};
 const input={requestId:'simple-bill',customerName:'Fixture',items:[item]};
