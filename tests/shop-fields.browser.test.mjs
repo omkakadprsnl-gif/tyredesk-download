@@ -47,13 +47,21 @@ try{
    const x=await page.evaluate(()=>{
     const footer=document.querySelector('.overlay .modal-footer').getBoundingClientRect();
     const modal=document.querySelector('.overlay .modal').getBoundingClientRect();
+    const body=document.querySelector('.overlay .modal-body').getBoundingClientRect();
     const vv=window.visualViewport;
-    return {footerBottom:footer.bottom,modalBottom:modal.bottom,vvBottom:vv.offsetTop+vv.height,
-      footerLeft:footer.left,footerRight:footer.right,width:innerWidth};
+    return {footerBottom:footer.bottom,footerTop:footer.top,modalBottom:modal.bottom,
+      modalTop:modal.top,bodyHeight:body.height,bodyBottom:body.bottom,
+      vvBottom:vv.offsetTop+vv.height,footerLeft:footer.left,footerRight:footer.right,width:innerWidth};
    });
    assert.ok(x.footerBottom<=x.vvBottom+2&&x.modalBottom<=x.vvBottom+2,
      name+' footer/keyboard overflow '+JSON.stringify(x));
    assert.ok(x.footerLeft>=-2&&x.footerRight<=x.width+2,name+' horizontal modal overflow');
+   assert.ok(Math.abs(x.footerBottom-x.modalBottom)<=3,
+      name+' buttons stranded above the dialog bottom '+JSON.stringify(x));
+   assert.ok(x.bodyHeight>=110,
+      name+' form collapsed while typing '+JSON.stringify(x));
+   assert.ok(Math.abs(x.bodyBottom-x.footerTop)<=3,
+      name+' form and footer have a gap/overlap '+JSON.stringify(x));
   };
   await nav('settings');
   assert.equal(await page.locator('#inventory-mode-form').count(),0,'Existing shop cannot change mode');
@@ -82,6 +90,17 @@ try{
   await page.setViewportSize({width,height:510});
   await modalFits('Purchasing keyboard at '+width);
   await page.setViewportSize({width,height:820});
+  // Samsung/Android can shrink the visual viewport while the layout viewport
+  // remains full-sized. Simulate that path, not just a desktop window resize.
+  await page.evaluate(()=>{
+    document.documentElement.classList.add('keyboard-open');
+    document.documentElement.style.setProperty('--visible-screen-height','450px');
+  });
+  await modalFits('Purchasing visual viewport keyboard at '+width);
+  await page.evaluate(()=>{
+    document.documentElement.classList.remove('keyboard-open');
+    document.documentElement.style.setProperty('--visible-screen-height',window.visualViewport.height+'px');
+  });
   await page.locator('[form=purchase-form]').click();
   await page.locator('#purchase-form').waitFor({state:'detached'});
   await page.getByText('Color: Red',{exact:false}).first().waitFor();
