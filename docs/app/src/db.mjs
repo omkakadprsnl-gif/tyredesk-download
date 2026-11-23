@@ -166,10 +166,11 @@ export async function setInventoryMode(mode) {
     const settings=tx.objectStore('settings');
     const shop=await request(settings.get('shop'));
     if(!shop)throw Error('Complete shop setup first.');
+    if(shop.inventoryMode)
+      throw Error('Inventory mode was permanently selected during shop setup.');
     const tyres=await request(tx.objectStore('catalog').index('type').getAll('tyre'));
-    if(tyres.length && inventoryMode(shop,tyres)!==mode)
-      throw Error('Changing mode requires reassigning your existing stock. Your current stock and purchase history are kept.');
-    await request(settings.put({...shop,inventoryMode:mode,updatedAt:new Date().toISOString()}));
+    if(tyres.length)throw Error('Inventory mode cannot be changed after tyre stock exists.');
+    await request(settings.put({...shop,inventoryMode:mode,inventoryModeLocked:true,updatedAt:new Date().toISOString()}));
   });
 }
 
